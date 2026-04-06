@@ -646,6 +646,7 @@ class SpatialGrid:
 # ── SkullBall ─────────────────────────────────────────────────────────────────
 class SkullBall:
     R      = 14       # radius px
+    _img   = None     # set after pygame.init() in main()
     BOUNCE = 0.62     # restitution vs tiles / walls
     FRIC   = 0.985    # per-frame horizontal friction on floor
     BALL_E = 0.75     # restitution ball–ball / ball–character
@@ -753,22 +754,18 @@ class SkullBall:
         R  = self.R
         if not (-R < sx < GAME_W + R and -R < sy < SCREEN_H + R):
             return
-        # draw skull onto small surface so we can rotate it
-        sz  = R * 2 + 2
-        tmp = pygame.Surface((sz, sz), pygame.SRCALPHA)
-        cx  = cy = sz // 2
-        pygame.draw.circle(tmp, (170, 165, 150), (cx, cy), R)
-        pygame.draw.circle(tmp, ( 90,  85,  75), (cx, cy), R, 1)
-        er = max(1, R // 4)
-        ex = R * 33 // 100
-        ey = R * 18 // 100
-        pygame.draw.circle(tmp, (35, 30, 25), (cx - ex, cy - ey), er)
-        pygame.draw.circle(tmp, (35, 30, 25), (cx + ex, cy - ey), er)
-        pygame.draw.arc(tmp, (35, 30, 25),
-                        pygame.Rect(cx - R // 2, cy, R, R // 2),
-                        math.pi, 2 * math.pi, 1)
-        rotated = pygame.transform.rotate(tmp, -self.angle)
-        surface.blit(rotated, rotated.get_rect(center=(sx, sy)))
+        if self._img:
+            rotated = pygame.transform.rotate(self._img, -self.angle)
+            surface.blit(rotated, rotated.get_rect(center=(sx, sy)))
+        else:
+            # Fallback: procedural circle skull
+            sz  = R * 2 + 2
+            tmp = pygame.Surface((sz, sz), pygame.SRCALPHA)
+            cx  = cy = sz // 2
+            pygame.draw.circle(tmp, (170, 165, 150), (cx, cy), R)
+            pygame.draw.circle(tmp, ( 90,  85,  75), (cx, cy), R, 1)
+            rotated = pygame.transform.rotate(tmp, -self.angle)
+            surface.blit(rotated, rotated.get_rect(center=(sx, sy)))
 
 
 # ── Vlad ──────────────────────────────────────────────────────────────────────
@@ -1638,6 +1635,10 @@ def main():
     player_img = load_sprite(os.path.join(BASE, "assassin.png"), Player.W, Player.H)
     if player_img:
         player_img = pygame.transform.flip(player_img, True, False)
+    skull_sz   = SkullBall.R * 2 + 4   # 32 px — a touch larger than radius for nice look
+    skull_img  = load_sprite(os.path.join(BASE, "skull.png"), skull_sz, skull_sz)
+    if skull_img:
+        SkullBall._img = skull_img
     walk_img   = load_sprite(os.path.join(BASE, "walking.png"), Player.W, Player.H)
     crouch_img = load_sprite(os.path.join(BASE, "crouch.png"), Player.W, Player.CRAWL_H)
     vlad_img   = load_sprite(os.path.join(BASE, "vlad.png"),       Vlad.W, Vlad.H * 2)
