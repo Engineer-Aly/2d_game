@@ -1,0 +1,12 @@
+{
+  "levels": [
+    {
+      "file": "level.txt",
+      "name": "The Castle — Hunt Begins"
+    },
+    {
+      "file": "level_2.txt",
+      "name": "2nd Castle — Hunt continues"
+    }
+  ]
+}
