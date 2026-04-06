@@ -29,6 +29,13 @@ ROAM_INTERVAL = 6.0     # seconds between random roam destinations
 TILE         = 48
 JUMP_TILES   = 4        # max tiles Vlad can jump up in nav graph
 
+LIGHTNING_CHARGES  = 3
+LIGHTNING_COOLDOWN = 45   # frames between shots (~0.75 s)
+LIGHTNING_LIFE     = 14   # frames the bolt stays visible
+LIGHTNING_SEGS     = 12   # zigzag segments
+LIGHTNING_AMP      = 20   # max y-deviation per segment (px)
+STUN_DURATION      = 90   # frames Vlad is stunned
+
 WHITE = (255, 255, 255)
 GOLD  = (218, 165,  32)
 RED   = (180,  30,  30)
@@ -492,8 +499,11 @@ class Player:
         self.img        = img
         self.crouch_img = crouch_img
         self.walk_img   = walk_img
-        self.daggers    = 0
-        self.crouching  = False
+        self.daggers          = 0
+        self.crouching        = False
+        self.lightning        = LIGHTNING_CHARGES
+        self.lightning_cd     = 0
+        self.pending_lightning = None
 
     def _can_stand(self):
         """Return True if there is enough vertical space to stand up."""
@@ -510,6 +520,14 @@ class Player:
 
     def handle_input(self, keys):
         self.vx = 0
+        self.pending_lightning = None
+        if self.lightning_cd > 0:
+            self.lightning_cd -= 1
+        if keys[pygame.K_e] and self.lightning > 0 and self.lightning_cd == 0:
+            direction = -1 if self.img_flip else 1
+            self.pending_lightning = Lightning(self.rect.centerx, self.rect.centery, direction)
+            self.lightning    -= 1
+            self.lightning_cd  = LIGHTNING_COOLDOWN
         want_crouch = keys[pygame.K_DOWN] or keys[pygame.K_s]
         if want_crouch and not self.crouching and self.on_ground:
             self.crouching = True
@@ -780,6 +798,7 @@ class Vlad:
         self.swap_used   = False      # one-time guard swap ability
         self._bt         = self._build_bt()
         self.particles   = []         # particle effects
+        self.stun_timer  = 0          # frames remaining stunned by lightning
 
     def _foot_tile(self):
         """Tile coordinates of the ground Vlad is standing on."""
@@ -876,6 +895,13 @@ class Vlad:
         )
 
     def update(self, tiles, player, guards=None):
+        # Lightning stun — freeze movement, gravity still applies
+        if self.stun_timer > 0:
+            self.stun_timer -= 1
+            self.vx = 0
+            self.vy, self.on_ground = apply_physics(self.rect, 0, self.vy, tiles)
+            return
+
         self.sees_player = has_line_of_sight(self.rect, player.rect)
 
         # FSM transitions
@@ -1071,9 +1097,70 @@ class Vlad:
                 alive.append(p)
         self.particles = alive
 
-        if self.sees_player:
+        if self.stun_timer > 0:
+            if self.stun_timer % 8 < 4:   # flickering blue tint
+                tint = pygame.Surface((r.width, r.height), pygame.SRCALPHA)
+                tint.fill((80, 140, 255, 130))
+                surface.blit(tint, r.topleft)
+            zap = font.render("*STUNNED*", True, (120, 180, 255))
+            surface.blit(zap, (r.centerx - zap.get_width() // 2, r.top - 28))
+        elif self.sees_player:
             bang = font.render("!", True, RED)
             surface.blit(bang, (r.centerx - bang.get_width() // 2, r.top - 28))
+
+
+# ── Lightning bolt ────────────────────────────────────────────────────────────
+class Lightning:
+    def __init__(self, x, y, direction):
+        self.y      = y
+        self.x_src  = x
+        self.x_dst  = 0 if direction < 0 else LEVEL_PIXEL_W
+        self.life   = LIGHTNING_LIFE
+        self._pts   = []
+        self._gen()
+
+    def _gen(self):
+        x1, x2 = min(self.x_src, self.x_dst), max(self.x_src, self.x_dst)
+        pts = [(x1, self.y)]
+        for i in range(1, LIGHTNING_SEGS):
+            px = x1 + (x2 - x1) * i / LIGHTNING_SEGS
+            py = self.y + random.uniform(-LIGHTNING_AMP, LIGHTNING_AMP)
+            pts.append((int(px), int(py)))
+        pts.append((x2, self.y))
+        self._pts = pts
+
+    @property
+    def active(self):
+        return self.life > 0
+
+    @property
+    def rect(self):
+        x1 = min(self.x_src, self.x_dst)
+        x2 = max(self.x_src, self.x_dst)
+        return pygame.Rect(x1, self.y - LIGHTNING_AMP, x2 - x1, LIGHTNING_AMP * 2)
+
+    def update(self):
+        self.life -= 1
+        if self.active:
+            self._gen()   # re-randomize every frame → flickering effect
+
+    def draw(self, surface, cam):
+        if not self.active:
+            return
+        pts = [(p[0] - cam.ox, p[1] - cam.oy) for p in self._pts]
+        frac = self.life / LIGHTNING_LIFE
+
+        # Glow layers on an alpha surface
+        gs = pygame.Surface((GAME_W, SCREEN_H), pygame.SRCALPHA)
+        for i in range(len(pts) - 1):
+            pygame.draw.line(gs, (80, 130, 255, int(45 * frac)), pts[i], pts[i+1], 12)
+            pygame.draw.line(gs, (150, 190, 255, int(90 * frac)), pts[i], pts[i+1],  5)
+        surface.blit(gs, (0, 0))
+
+        # Solid core
+        for i in range(len(pts) - 1):
+            pygame.draw.line(surface, (190, 220, 255), pts[i], pts[i+1], 2)
+            pygame.draw.line(surface, (255, 255, 255), pts[i], pts[i+1], 1)
 
 
 # ── Particle ──────────────────────────────────────────────────────────────────
@@ -1437,8 +1524,10 @@ def draw_hud(surface, player, total_daggers, vlad, font):
     labels = {"IDLE": "roaming", "FLEE": f"FLEEING! [{vlad.ai.strategy()}]"}
     state_txt = labels.get(vlad.state, vlad.state)
     fire_txt  = f"  🔥 {vlad.ammo}" if vlad.ammo > 0 else "  🔥 OUT"
+    bolt_txt = f"Bolt:{player.lightning}" if player.lightning > 0 else "Bolt:OUT"
     txt = font.render(
-        f"Daggers: {player.daggers}/{total_daggers}    Vlad: {state_txt}  Fireballs:{vlad.ammo}",
+        f"Daggers: {player.daggers}/{total_daggers}    Vlad: {state_txt}  "
+        f"Vlad-FB:{vlad.ammo}   {bolt_txt}  [E]",
         True, GOLD)
     surface.blit(txt, (14, 16))
 
@@ -1588,10 +1677,10 @@ def main():
                 g.move_dir = -1   # alternate facing direction
             guards_list.append(g)
         return (player, vlad, solids, daggers, wall_rects, floor_rects,
-                [], guards_list, [], skulls, skull_grid)
+                [], guards_list, [], skulls, skull_grid, [])
 
     (player, vlad, solids, daggers, wall_rects, floor_rects,
-     fireballs, guards, guard_fbs, skulls, skull_grid) = reset()
+     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
     total_daggers = len(daggers)
     cam          = Camera()
     state        = "play"
@@ -1614,7 +1703,7 @@ def main():
                     pygame.quit(); sys.exit()
                 if event.key == pygame.K_r:
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
-                     fireballs, guards, guard_fbs, skulls, skull_grid) = reset()
+                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
                     state        = "play"
                     death_reason = ""
@@ -1624,7 +1713,7 @@ def main():
                     level_idx = (level_idx + 1) % len(level_index)
                     switch_level(level_index[level_idx]["file"])
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
-                     fireballs, guards, guard_fbs, skulls, skull_grid) = reset()
+                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
                     state = "play"; death_reason = ""; death_timer = 0
                     _update_caption()
@@ -1633,7 +1722,7 @@ def main():
                     level_idx = (level_idx - 1) % len(level_index)
                     switch_level(level_index[level_idx]["file"])
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
-                     fireballs, guards, guard_fbs, skulls, skull_grid) = reset()
+                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
                     state = "play"; death_reason = ""; death_timer = 0
                     _update_caption()
@@ -1651,6 +1740,29 @@ def main():
             skull_grid.rebuild(skulls)
             for sk in skulls:
                 sk.update(skull_grid, player.rect, vlad.rect)
+
+            # Lightning — collect from player, update, resolve hits
+            if player.pending_lightning:
+                lightnings.append(player.pending_lightning)
+                player.pending_lightning = None
+            for bolt in lightnings[:]:
+                bolt.update()
+                if not bolt.active:
+                    lightnings.remove(bolt)
+                    continue
+                br = bolt.rect
+                for gfb in guard_fbs:           # cancel guard fireballs
+                    if gfb.active and br.colliderect(gfb.rect):
+                        gfb.active = False
+                for fb in fireballs:            # cancel Vlad's fireballs
+                    if fb.active and br.colliderect(fb.rect):
+                        fb.active = False
+                if br.colliderect(vlad.rect):   # stun Vlad
+                    vlad.stun_timer = max(vlad.stun_timer, STUN_DURATION)
+                for g in guards:               # destroy active guards
+                    if g.alive and g.mode in ("alert", "dropping", "floor"):
+                        if br.colliderect(g.rect):
+                            g.alive = False
 
             # Guards update + collect pending fireballs
             for g in guards:
@@ -1730,6 +1842,9 @@ def main():
         for sk in skulls:
             sk.draw(screen, cam)
 
+        for bolt in lightnings:
+            bolt.draw(screen, cam)
+
         for g in guards:
             g.draw(screen, cam, font_bang)
 
@@ -1753,7 +1868,7 @@ def main():
                     level_idx = next_idx
                     switch_level(level_index[level_idx]["file"])
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
-                     fireballs, guards, guard_fbs, skulls, skull_grid) = reset()
+                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
                     state = "play"; death_reason = ""; death_timer = 0; win_timer = 0
                     _update_caption()
