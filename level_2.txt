@@ -11,23 +11,23 @@
 # Jump height ≈ 3.5 tiles, so keep vertical gaps <= 3 tiles
 # Horizontal platForm gaps can be any width you can run-jump across
 #
-WWWWWWWWWWWWWWGWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWGWWWWWWWWWWWWWW
+WWWWWWWWWWWWWWGWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWGWWWWWWWWWWWWWG
 W.....................................................WW
 W.....................................................WW
 W....................WGWWWWWWWWWWWWWWW..........WWWWWWWW
 W......WWWWWWWWWWWW...................................WW
 WWW....................................WWWWWWW........WW
 W......................WWWWWGWWW..................WWWWWW
-WFFFGFFFFFFW.....D....FWW.........WWWWW...............WW
-W....................FFWW.............WWWWWWWwww......WW
-W.................FFFFFWW.........................FFFFWWWWWWWWWGWWWWWWWWWWWWWWWWWWWWWWWWW
+WFFFGFFFFFFW.....D....FWW.........WWWWW.................
+W....................FFWW.............WWWWWWWwww........
+W.................FFFFFWW.........................FFFFWWWWWWWWWGWWWWW....WWWWWWWWWWWWWWWG
 W.........FFFFFFFFFFFFFWW.............................WW...............................WW
 W......................WW..................FFFFGFFFGFFWW...............................WW
 W......................WW....DFFFFFFFFFF...............................................WW
-WFFFFFFFFWWWWWW........WWWWW......................................D....................WW
-W..................FF..................................................................WW
-W................FFFF.........FGFFF............................WWFFFF...V..............WW
-W..........FFFFFGFFFFFFWWWW..........................................FFFFFF..........FFWW
-W..............................WWWWWWWWWWWW...........ww.........................FFFFFFWW
-W.P...................................................WW.......................FFFFFFFFWW
-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+WFFFFFFFFWWWWWW........WWWW.......................................D....................WW
+W..................FF....................WFFFFFFFFFFFFFFFFFW..........................................................................WW
+W................FFFF........FFGFFF............................WWFFFF.................................................................WW
+W..........FFFFFGFFFFFFWWWW..........................................FFFFFF..........FFWWF............................................WW
+W..............................WWWWWWWWWWWW...........ww.........................FFFFFFWWFFFF.........................................WW
+W.P...................................................WW.......................FFFFFFFFWWFFFFFFF.........................V............WW
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF......FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.FFFFFFFF.FFFFFFFFFFFFFFFFFFFFFFFF

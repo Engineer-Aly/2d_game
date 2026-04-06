@@ -993,10 +993,11 @@ class Vlad:
         else:
             dist  = math.hypot(self.rect.centerx - player.rect.centerx,
                                self.rect.centery - player.rect.centery)
-            panic = self.sees_player and dist < PANIC_RANGE
+            panic       = self.sees_player and dist < PANIC_RANGE
+            guard_alert = any(g.alive and g.sees_player for g in (guards or []))
 
-            if self.on_ground and (not self.path or panic):
-                self._replan(player, guards=guards, panic=panic)
+            if self.on_ground and (not self.path or panic or guard_alert):
+                self._replan(player, guards=guards, panic=panic or guard_alert)
 
             # BT drives frame-by-frame action selection
             self._bt.tick(ctx)
@@ -1609,6 +1610,30 @@ def draw_message(surface, text, font_big, colour=GOLD, reason=""):
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     pygame.init()
+    pygame.mixer.init()
+
+    # ── Music ──────────────────────────────────────────────────────────────────
+    MUSIC_DIR        = os.path.join(os.path.dirname(__file__), "MUSIC")
+    MUSIC_INTRO      = os.path.join(MUSIC_DIR, "Requiem_for_the_Hunted.mp3")
+    MUSIC_GAMEPLAY   = os.path.join(MUSIC_DIR, "Beneath_the_Keep.mp3")
+    MUSIC_END_EVENT  = pygame.USEREVENT + 1
+    _gameplay_started = False
+
+    def _start_gameplay_music():
+        nonlocal _gameplay_started
+        if not _gameplay_started:
+            _gameplay_started = True
+            if os.path.exists(MUSIC_GAMEPLAY):
+                pygame.mixer.music.load(MUSIC_GAMEPLAY)
+                pygame.mixer.music.play(-1)   # loop forever
+
+    if os.path.exists(MUSIC_INTRO):
+        pygame.mixer.music.load(MUSIC_INTRO)
+        pygame.mixer.music.set_endevent(MUSIC_END_EVENT)
+        pygame.mixer.music.play(0)            # play once
+    else:
+        _start_gameplay_music()
+
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     clock  = pygame.time.Clock()
 
@@ -1699,6 +1724,8 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
+            if event.type == MUSIC_END_EVENT:
+                _start_gameplay_music()
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit(); sys.exit()
@@ -1810,7 +1837,7 @@ def main():
 
             for d in daggers[:]:
                 if player.rect.colliderect(d):
-                    daggers.remove(d); player.daggers += 1
+                    daggers.remove(d); player.daggers += 1; player.lightning += 1
 
             if player.rect.colliderect(vlad.rect):
                 if player.daggers >= total_daggers:
