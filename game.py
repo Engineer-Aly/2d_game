@@ -484,13 +484,14 @@ class Player:
     W, H    = 38, 64
     CRAWL_H = 30          # hitbox height when crouching (~fits in 1-tile gap)
 
-    def __init__(self, x, y, img, crouch_img=None):
+    def __init__(self, x, y, img, crouch_img=None, walk_img=None):
         self.rect       = pygame.Rect(x, y, self.W, self.H)
         self.vx = self.vy = 0
         self.on_ground  = False
         self.img_flip   = False
         self.img        = img
         self.crouch_img = crouch_img
+        self.walk_img   = walk_img
         self.daggers    = 0
         self.crouching  = False
 
@@ -531,8 +532,13 @@ class Player:
         self.vy, self.on_ground = apply_physics(self.rect, self.vx, self.vy, tiles)
 
     def draw(self, surface, cam):
-        r   = cam.apply(self.rect)
-        img = self.crouch_img if self.crouching else self.img
+        r = cam.apply(self.rect)
+        if self.crouching:
+            img = self.crouch_img
+        elif self.vx != 0 and self.walk_img:
+            img = self.walk_img
+        else:
+            img = self.img
         if img:
             surface.blit(pygame.transform.flip(img, self.img_flip, False), r)
         else:
@@ -1543,6 +1549,7 @@ def main():
     player_img = load_sprite(os.path.join(BASE, "assassin.png"), Player.W, Player.H)
     if player_img:
         player_img = pygame.transform.flip(player_img, True, False)
+    walk_img   = load_sprite(os.path.join(BASE, "walking.png"), Player.W, Player.H)
     crouch_img = load_sprite(os.path.join(BASE, "crouch.png"), Player.W, Player.CRAWL_H)
     vlad_img   = load_sprite(os.path.join(BASE, "vlad.png"),       Vlad.W, Vlad.H * 2)
     if vlad_img:
@@ -1569,7 +1576,7 @@ def main():
 
     def reset():
         solids, daggers, wall_rects, floor_rects, pstart, vstart, gstarts = build_level()
-        player     = Player(*pstart, player_img, crouch_img)
+        player     = Player(*pstart, player_img, crouch_img, walk_img)
         vlad       = Vlad(*(vstart or (LEVEL_COLS // 2 * TILE, TILE * 2)), vlad_img)
         skulls     = spawn_skulls()
         skull_grid = SpatialGrid()
