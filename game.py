@@ -1657,7 +1657,7 @@ def main():
                 gfb.update(solids)
                 if gfb.fully_dead:
                     guard_fbs.remove(gfb)
-                elif gfb.active and player.rect.colliderect(gfb.rect):
+                elif state == "play" and gfb.active and player.rect.colliderect(gfb.rect):
                     state = "dead"; death_timer = 150
                     death_reason = "Struck by a guard's fireball"
 
@@ -1665,7 +1665,7 @@ def main():
             # Guards are only dangerous when actively attacking (dropping or hunting).
             # On ceiling / alert they are not yet a threat.
             for g in guards:
-                if g.alive and player.rect.colliderect(g.rect):
+                if state == "play" and g.alive and player.rect.colliderect(g.rect):
                     if player.daggers >= total_daggers:
                         g.alive = False          # player kills guard with daggers
                     elif g.mode in ("dropping", "floor"):
@@ -1684,7 +1684,7 @@ def main():
                 fb.update(solids)
                 if not fb.active:
                     fireballs.remove(fb)
-                elif player.rect.colliderect(fb.rect):
+                elif state == "play" and player.rect.colliderect(fb.rect):
                     state = "dead"; death_timer = 150
                     death_reason = "Burned alive by Vlad's fireball"
 
@@ -1698,7 +1698,7 @@ def main():
                 else:
                     touching_early = True
 
-            if player.rect.top > LEVEL_PIXEL_H + 100:
+            if state == "play" and player.rect.bottom > LEVEL_PIXEL_H + TILE:
                 state = "dead"; death_timer = 60
                 death_reason = "Fell into the abyss"
 
