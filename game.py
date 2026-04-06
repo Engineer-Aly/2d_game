@@ -481,32 +481,60 @@ def apply_physics(rect, vx, vy, tiles):
 
 # ── Player ────────────────────────────────────────────────────────────────────
 class Player:
-    W, H = 38, 64
+    W, H    = 38, 64
+    CRAWL_H = 30          # hitbox height when crouching (~fits in 1-tile gap)
 
-    def __init__(self, x, y, img):
-        self.rect      = pygame.Rect(x, y, self.W, self.H)
+    def __init__(self, x, y, img, crouch_img=None):
+        self.rect       = pygame.Rect(x, y, self.W, self.H)
         self.vx = self.vy = 0
-        self.on_ground = False
-        self.img_flip  = False
-        self.img       = img
-        self.daggers   = 0
+        self.on_ground  = False
+        self.img_flip   = False
+        self.img        = img
+        self.crouch_img = crouch_img
+        self.daggers    = 0
+        self.crouching  = False
+
+    def _can_stand(self):
+        """Return True if there is enough vertical space to stand up."""
+        extra_top = self.rect.bottom - self.H
+        extra_bot = self.rect.top
+        if extra_top >= extra_bot:
+            return True
+        col_l = self.rect.left  // TILE
+        col_r = (self.rect.right - 1) // TILE
+        for row in range(extra_top // TILE, extra_bot // TILE + 1):
+            if _is_solid(col_l, row) or _is_solid(col_r, row):
+                return False
+        return True
 
     def handle_input(self, keys):
         self.vx = 0
+        want_crouch = keys[pygame.K_DOWN] or keys[pygame.K_s]
+        if want_crouch and not self.crouching and self.on_ground:
+            self.crouching = True
+            bot = self.rect.bottom
+            self.rect.height = self.CRAWL_H
+            self.rect.bottom = bot
+        elif not want_crouch and self.crouching and self._can_stand():
+            self.crouching = False
+            bot = self.rect.bottom
+            self.rect.height = self.H
+            self.rect.bottom = bot
         if keys[pygame.K_LEFT]  or keys[pygame.K_a]:
             self.vx = -PLAYER_SPEED; self.img_flip = True
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             self.vx =  PLAYER_SPEED; self.img_flip = False
-        if (keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_SPACE]) and self.on_ground:
+        if (keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_SPACE]) and self.on_ground and not self.crouching:
             self.vy = JUMP_FORCE; self.on_ground = False
 
     def update(self, tiles):
         self.vy, self.on_ground = apply_physics(self.rect, self.vx, self.vy, tiles)
 
     def draw(self, surface, cam):
-        r = cam.apply(self.rect)
-        if self.img:
-            surface.blit(pygame.transform.flip(self.img, self.img_flip, False), r)
+        r   = cam.apply(self.rect)
+        img = self.crouch_img if self.crouching else self.img
+        if img:
+            surface.blit(pygame.transform.flip(img, self.img_flip, False), r)
         else:
             pygame.draw.rect(surface, GOLD, r)
 
@@ -1515,6 +1543,7 @@ def main():
     player_img = load_sprite(os.path.join(BASE, "assassin.png"), Player.W, Player.H)
     if player_img:
         player_img = pygame.transform.flip(player_img, True, False)
+    crouch_img = load_sprite(os.path.join(BASE, "crouch.png"), Player.W, Player.CRAWL_H)
     vlad_img   = load_sprite(os.path.join(BASE, "vlad.png"),       Vlad.W, Vlad.H * 2)
     if vlad_img:
         vlad_img = pygame.transform.flip(vlad_img, True, False)
@@ -1540,7 +1569,7 @@ def main():
 
     def reset():
         solids, daggers, wall_rects, floor_rects, pstart, vstart, gstarts = build_level()
-        player     = Player(*pstart, player_img)
+        player     = Player(*pstart, player_img, crouch_img)
         vlad       = Vlad(*(vstart or (LEVEL_COLS // 2 * TILE, TILE * 2)), vlad_img)
         skulls     = spawn_skulls()
         skull_grid = SpatialGrid()
