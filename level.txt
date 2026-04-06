@@ -1,0 +1,30 @@
+# Dungeon map — edit freely!
+# Each character = one 48x48 tile
+# W = stone wall   . = empty air
+# D = silver dagger (collectible)
+# V = Vlad the Impaler (goal — reach him after all daggers)
+# P = player start (only first P is used)
+#
+# Jump height ≈ 3.5 tiles, so keep vertical gaps <= 3 tiles
+# Horizontal platform gaps can be any width you can run-jump across
+#
+WWWWWWWWWWWWWWWWWWWWWWWWW
+W......................WW
+W......................WW
+W................V.....WW
+W......WWWWWWWWWWWW....WW
+W......................WW
+W......................WW
+WFFFFFFFFFFW.....D.....WW
+W......................WW
+W......................WW
+W.........FFFFFFFFFFFFFWW
+W......................WW
+W......................WW
+WFFFFFFFFW.....D.......WW
+W......................WW
+W......................WW
+W..........FFFFFFFFFFFFWW
+W......................WW
+W.P..D.................WW
+FFFFFFFFFFFFFFFFFFFFFFFFF
