@@ -29,6 +29,8 @@ ROAM_INTERVAL = 6.0     # seconds between random roam destinations
 TILE         = 48
 JUMP_TILES   = 4        # max tiles Vlad can jump up in nav graph
 
+PLAYER_MAX_HP      = 5
+PLAYER_IFRAMES     = 60   # invincibility frames after taking damage (~1 s)
 LIGHTNING_CHARGES  = 3
 LIGHTNING_COOLDOWN = 45   # frames between shots (~0.75 s)
 LIGHTNING_LIFE     = 14   # frames the bolt stays visible
@@ -504,6 +506,8 @@ class Player:
         self.lightning        = LIGHTNING_CHARGES
         self.lightning_cd     = 0
         self.pending_lightning = None
+        self.hp               = PLAYER_MAX_HP
+        self.invincible       = 0   # countdown iframes
 
     def _can_stand(self):
         """Return True if there is enough vertical space to stand up."""
@@ -546,7 +550,17 @@ class Player:
         if (keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_SPACE]) and self.on_ground and not self.crouching:
             self.vy = JUMP_FORCE; self.on_ground = False
 
+    def take_damage(self):
+        """Returns True if damage was dealt (not invincible), False if blocked by iframes."""
+        if self.invincible > 0:
+            return False
+        self.hp -= 1
+        self.invincible = PLAYER_IFRAMES
+        return True
+
     def update(self, tiles):
+        if self.invincible > 0:
+            self.invincible -= 1
         self.vy, self.on_ground = apply_physics(self.rect, self.vx, self.vy, tiles)
 
     def draw(self, surface, cam):
@@ -789,7 +803,8 @@ class Vlad:
         self._escape_start   = None    # time when Vlad lost sight of player
         self.directive   = "FLEE"     # set by LLM
         self._lure_timer = 0          # frames remaining in LURE state
-        self.swap_used   = False      # one-time guard swap ability
+        self.swap_used        = False   # one-time guard swap ability
+        self.swap_reveal_timer = 0      # frames to show ping at new position
         self._bt         = self._build_bt()
         self.particles   = []         # particle effects
         self.stun_timer  = 0          # frames remaining stunned by lightning
@@ -945,11 +960,12 @@ class Vlad:
                 self._emit_burst(
                     [(220, 30, 30), (255, 80, 80), (200, 0, 100)], count=18)
             elif self.directive == "SWAP" and not self.swap_used and guards:
-                # Pick the alive guard farthest from the player
+                # Pick the alive, floor-level guard farthest from the player
+                # (exclude ceiling guards — their position is inside solid geometry)
                 target_guard = None
                 best_dist    = -1
                 for g in guards:
-                    if g.alive:
+                    if g.alive and g.mode != "ceiling":
                         d = math.hypot(g.rect.centerx - player.rect.centerx,
                                        g.rect.centery - player.rect.centery)
                         if d > best_dist:
@@ -964,7 +980,7 @@ class Vlad:
                     target_guard.mode       = "floor"   # guard lands on floor
                     target_guard.vy         = 0.0
                     self.swap_used = True
-                    # Big smoke at both locations
+                    self.swap_reveal_timer = 180
                     self._emit_smoke_at(old_cx, old_cy, count=45)
                     self._emit_smoke_at(new_cx, new_cy, count=45)
             elif self.directive in ("AMBUSH", "PINCER", "HUNKER") and guards:
@@ -973,7 +989,8 @@ class Vlad:
                     g.directive = self.directive
 
         if self.flash_timer > 0: self.flash_timer -= 1
-        if self.fire_flash  > 0: self.fire_flash  -= 1
+        if self.fire_flash        > 0: self.fire_flash        -= 1
+        if self.swap_reveal_timer > 0: self.swap_reveal_timer -= 1
 
         ctx = {"tiles": tiles, "player": player, "guards": guards or [], "vlad": self}
 
@@ -992,6 +1009,26 @@ class Vlad:
                                self.rect.centery - player.rect.centery)
             panic       = self.sees_player and dist < PANIC_RANGE
             guard_alert = any(g.alive and g.sees_player for g in (guards or []))
+
+            # Auto-SWAP: player has all daggers and is dangerously close — don't wait for LLM
+            # Exclude ceiling guards — teleporting there puts Vlad inside solid geometry
+            alive_guards = [g for g in (guards or []) if g.alive and g.mode != "ceiling"]
+            if (not self.swap_used and alive_guards
+                    and player.daggers >= getattr(player, '_total_daggers', 999)
+                    and dist < TILE * 8):
+                target_guard = max(alive_guards,
+                                   key=lambda g: math.hypot(g.rect.centerx - player.rect.centerx,
+                                                             g.rect.centery - player.rect.centery))
+                old_cx, old_cy = self.rect.centerx, self.rect.centery
+                new_cx, new_cy = target_guard.rect.centerx, target_guard.rect.centery
+                self.rect.center         = (new_cx, new_cy)
+                target_guard.rect.center = (old_cx, old_cy)
+                target_guard.mode        = "floor"
+                target_guard.vy          = 0.0
+                self.swap_used = True
+                self.swap_reveal_timer = 180
+                self._emit_smoke_at(old_cx, old_cy, count=45)
+                self._emit_smoke_at(new_cx, new_cy, count=45)
 
             if self.on_ground and (not self.path or panic or guard_alert):
                 self._replan(player, guards=guards, panic=panic or guard_alert)
@@ -1103,22 +1140,53 @@ class Vlad:
             bang = font.render("!", True, RED)
             surface.blit(bang, (r.centerx - bang.get_width() // 2, r.top - 28))
 
+        # Swap reveal ping — pulsing red ring + off-screen arrow
+        if self.swap_reveal_timer > 0:
+            frac  = self.swap_reveal_timer / 180
+            alpha = int(220 * frac)
+            pulse = int(18 + 10 * math.sin(self.swap_reveal_timer * 0.25))
+            ping  = pygame.Surface((pulse * 2 + 4, pulse * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(ping, (255, 60, 60, alpha), (pulse + 2, pulse + 2), pulse, 3)
+            surface.blit(ping, (r.centerx - pulse - 2, r.centery - pulse - 2))
+            # Off-screen arrow: if Vlad is outside the game viewport, draw a red arrow
+            sx, sy = r.centerx, r.centery
+            margin = 12
+            if not (0 <= sx <= GAME_W and 0 <= sy <= SCREEN_H):
+                ax = max(margin, min(GAME_W - margin, sx))
+                ay = max(margin, min(SCREEN_H - margin, sy))
+                dx, dy = sx - ax, sy - ay
+                length = math.hypot(dx, dy) or 1
+                dx, dy = dx / length * 10, dy / length * 10
+                tip  = (int(ax + dx), int(ay + dy))
+                left = (int(ax - dy * 0.5 - dx * 0.6), int(ay + dx * 0.5 - dy * 0.6))
+                rght = (int(ax + dy * 0.5 - dx * 0.6), int(ay - dx * 0.5 - dy * 0.6))
+                pygame.draw.polygon(surface, (255, 60, 60), [tip, left, rght])
+
 
 # ── Lightning bolt ────────────────────────────────────────────────────────────
+LIGHTNING_CHAIN_DELAY = 10   # frames the bolt lingers at each target before hopping
+
 class Lightning:
     def __init__(self, x, y, direction):
-        self.y        = y
-        self.x_src    = x
-        self.dir      = direction
-        self.x_dst    = 0 if direction < 0 else LEVEL_PIXEL_W
-        self.life     = LIGHTNING_LIFE
-        self._pts     = []
-        self._branches = []  # list of point-lists for sub-bolts
+        self.y         = y
+        self.x_src     = x
+        self.dir       = direction
+        self.x_dst     = 0 if direction < 0 else LEVEL_PIXEL_W
+        self.life      = LIGHTNING_LIFE
+        self._pts      = []
+        self._branches = []
+        self._old_segs = []   # afterimage segments: [pts, branches, life, max_life]
+        self._chain    = []   # [(wx, target_ref), ...] remaining hops
+        self._hop_timer = 0
         self._gen()
 
-    def set_target(self, tx):
-        """Clip the bolt to stop at world-x tx (nearest hittable target)."""
-        self.x_dst = tx
+    def set_chain(self, chain):
+        """chain: [(wx, target_ref), ...] sorted nearest → farthest."""
+        if not chain:
+            return
+        self._chain = list(chain)
+        self.x_dst  = self._chain[0][0]
+        self._hop_timer = LIGHTNING_CHAIN_DELAY
         self._gen()
 
     def _gen(self):
@@ -1131,13 +1199,12 @@ class Lightning:
         pts.append((x2, self.y))
         self._pts = pts
 
-        # Branches: 2-3 short offshoots from interior points
         self._branches = []
         interior = pts[1:-1]
         if len(interior) >= 2:
             for origin in random.sample(interior, min(3, len(interior))):
                 blen   = random.randint(18, 55)
-                bangle = random.uniform(-0.9, 0.9)   # radians off horizontal
+                bangle = random.uniform(-0.9, 0.9)
                 bx2    = int(origin[0] + self.dir * blen * math.cos(bangle))
                 by2    = int(origin[1] + blen * math.sin(bangle))
                 bmx    = (origin[0] + bx2) // 2
@@ -1146,50 +1213,87 @@ class Lightning:
 
     @property
     def active(self):
-        return self.life > 0
-
-    @property
-    def rect(self):
-        x1 = min(self.x_src, self.x_dst)
-        x2 = max(self.x_src, self.x_dst)
-        return pygame.Rect(x1, self.y - LIGHTNING_AMP, x2 - x1, LIGHTNING_AMP * 2)
+        return self.life > 0 or bool(self._chain) or bool(self._old_segs)
 
     def update(self):
+        """Tick. Returns list of target objects hit this frame (chain hops)."""
         self.life -= 1
-        if self.active:
-            self._gen()   # re-randomize every frame → flickering effect
+        newly_hit = []
+
+        if self._hop_timer > 0:
+            self._hop_timer -= 1
+            if self._hop_timer == 0 and self._chain:
+                wx, target = self._chain.pop(0)
+                newly_hit.append(target)
+                # Archive current segment as afterimage
+                self._old_segs.append([self._pts[:], self._branches[:], 8, 8])
+                # Advance origin to this target, aim at next
+                self.x_src = wx
+                if self._chain:
+                    self.x_dst = self._chain[0][0]
+                    self._hop_timer = LIGHTNING_CHAIN_DELAY
+                    self.life = LIGHTNING_LIFE
+                else:
+                    self.x_dst = wx
+                    self.life = LIGHTNING_LIFE
+
+        # Tick afterimages
+        self._old_segs = [s for s in self._old_segs if s[2] > 0]
+        for s in self._old_segs:
+            s[2] -= 1
+
+        if self.life > 0:
+            self._gen()
+
+        return newly_hit
 
     def draw(self, surface, cam):
         if not self.active:
             return
-        pts  = [(p[0] - cam.ox, p[1] - cam.oy) for p in self._pts]
-        frac = self.life / LIGHTNING_LIFE
+        frac = max(0.0, self.life / LIGHTNING_LIFE)
+        gs   = pygame.Surface((GAME_W, SCREEN_H), pygame.SRCALPHA)
 
-        gs = pygame.Surface((GAME_W, SCREEN_H), pygame.SRCALPHA)
+        # Afterimage segments (fading burned-in look)
+        for old_pts, old_branches, old_life, old_max in self._old_segs:
+            af   = old_life / old_max
+            spts = [(p[0] - cam.ox, p[1] - cam.oy) for p in old_pts]
+            for i in range(len(spts) - 1):
+                pygame.draw.line(gs, (80, 130, 255, int(30 * af)), spts[i], spts[i+1], 8)
+                pygame.draw.line(gs, (150, 190, 255, int(55 * af)), spts[i], spts[i+1], 3)
+            for branch in old_branches:
+                bpts = [(p[0] - cam.ox, p[1] - cam.oy) for p in branch]
+                for i in range(len(bpts) - 1):
+                    pygame.draw.line(gs, (60, 110, 255, int(20 * af)), bpts[i], bpts[i+1], 4)
 
-        # Branches — drawn first (behind main bolt), thinner + dimmer
-        for branch in self._branches:
-            bpts = [(p[0] - cam.ox, p[1] - cam.oy) for p in branch]
-            for i in range(len(bpts) - 1):
-                pygame.draw.line(gs, (60, 110, 255, int(35 * frac)), bpts[i], bpts[i+1], 6)
-                pygame.draw.line(gs, (130, 170, 255, int(60 * frac)), bpts[i], bpts[i+1], 2)
+        if self.life > 0:
+            pts = [(p[0] - cam.ox, p[1] - cam.oy) for p in self._pts]
 
-        # Main bolt glow
-        for i in range(len(pts) - 1):
-            pygame.draw.line(gs, (80, 130, 255, int(45 * frac)), pts[i], pts[i+1], 12)
-            pygame.draw.line(gs, (150, 190, 255, int(90 * frac)), pts[i], pts[i+1],  5)
-        surface.blit(gs, (0, 0))
+            # Branches (behind main bolt)
+            for branch in self._branches:
+                bpts = [(p[0] - cam.ox, p[1] - cam.oy) for p in branch]
+                for i in range(len(bpts) - 1):
+                    pygame.draw.line(gs, (60, 110, 255, int(35 * frac)), bpts[i], bpts[i+1], 6)
+                    pygame.draw.line(gs, (130, 170, 255, int(60 * frac)), bpts[i], bpts[i+1], 2)
 
-        # Branch solid cores
-        for branch in self._branches:
-            bpts = [(p[0] - cam.ox, p[1] - cam.oy) for p in branch]
-            for i in range(len(bpts) - 1):
-                pygame.draw.line(surface, (160, 200, 255), bpts[i], bpts[i+1], 1)
+            # Main glow
+            for i in range(len(pts) - 1):
+                pygame.draw.line(gs, (80, 130, 255, int(45 * frac)), pts[i], pts[i+1], 12)
+                pygame.draw.line(gs, (150, 190, 255, int(90 * frac)), pts[i], pts[i+1],  5)
 
-        # Main bolt solid core
-        for i in range(len(pts) - 1):
-            pygame.draw.line(surface, (190, 220, 255), pts[i], pts[i+1], 2)
-            pygame.draw.line(surface, (255, 255, 255), pts[i], pts[i+1], 1)
+            surface.blit(gs, (0, 0))
+
+            # Branch solid cores
+            for branch in self._branches:
+                bpts = [(p[0] - cam.ox, p[1] - cam.oy) for p in branch]
+                for i in range(len(bpts) - 1):
+                    pygame.draw.line(surface, (160, 200, 255), bpts[i], bpts[i+1], 1)
+
+            # Main solid core
+            for i in range(len(pts) - 1):
+                pygame.draw.line(surface, (190, 220, 255), pts[i], pts[i+1], 2)
+                pygame.draw.line(surface, (255, 255, 255), pts[i], pts[i+1], 1)
+        else:
+            surface.blit(gs, (0, 0))
 
 
 # ── Particle ──────────────────────────────────────────────────────────────────
@@ -1558,20 +1662,42 @@ def spawn_skulls(n=55):
 
 
 # ── HUD ───────────────────────────────────────────────────────────────────────
-def draw_hud(surface, player, total_daggers, vlad, font, muted=False):
-    panel = pygame.Surface((520, 44), pygame.SRCALPHA)
+def draw_hud(surface, player, total_daggers, vlad, font, muted=False, show_path=False):
+    panel = pygame.Surface((520, 60), pygame.SRCALPHA)
     panel.fill((0, 0, 0, 160))
     surface.blit(panel, (8, 8))
+
+    # ── Health bar ──────────────────────────────────────────────
+    bar_x, bar_y = 14, 12
+    pip_w, pip_h, pip_gap = 18, 12, 4
+    for i in range(PLAYER_MAX_HP):
+        rx = bar_x + i * (pip_w + pip_gap)
+        outline = pygame.Rect(rx, bar_y, pip_w, pip_h)
+        pygame.draw.rect(surface, (80, 20, 20), outline)
+        if i < player.hp:
+            # flash white when invincible, else red
+            if player.invincible > 0 and (player.invincible // 4) % 2 == 0:
+                col = (255, 255, 255)
+            else:
+                col = (210, 40, 40)
+            inner = outline.inflate(-3, -3)
+            pygame.draw.rect(surface, col, inner)
+        pygame.draw.rect(surface, (200, 60, 60), outline, 1)
+
+    # ── Text row ────────────────────────────────────────────────
     labels = {"IDLE": "roaming", "FLEE": f"FLEEING! [{vlad.ai.strategy()}]"}
     state_txt = labels.get(vlad.state, vlad.state)
-    fire_txt  = f"  🔥 {vlad.ammo}" if vlad.ammo > 0 else "  🔥 OUT"
-    bolt_txt = f"Bolt:{player.lightning}" if player.lightning > 0 else "Bolt:OUT"
+    bolt_txt  = f"Bolt:{player.lightning}" if player.lightning > 0 else "Bolt:OUT"
     mute_txt  = "  [MUTED]" if muted else ""
+    if player.daggers >= total_daggers:
+        path_txt = "  [Q: tracking]" if show_path else "  [Q: track Vlad]"
+    else:
+        path_txt = ""
     txt = font.render(
         f"Daggers: {player.daggers}/{total_daggers}    Vlad: {state_txt}  "
-        f"Vlad-FB:{vlad.ammo}   {bolt_txt}  [E]{mute_txt}",
+        f"Vlad-FB:{vlad.ammo}   {bolt_txt}  [E]{mute_txt}{path_txt}",
         True, GOLD)
-    surface.blit(txt, (14, 16))
+    surface.blit(txt, (14, 30))
 
 
 CHAT_W = 270
@@ -1700,6 +1826,9 @@ def main():
 
     win_timer = 0   # counts down after win before auto-advancing
     muted = False
+    show_path      = False   # Q toggles path-to-Vlad overlay
+    _path_to_vlad  = []      # cached tile path
+    _path_timer    = 0       # recompute every N frames
     flash_timer   = 0   # screen flash on bolt fire (frames)
     shake_timer   = 0   # camera shake on hit (frames)
     bolt_particles = []  # world-space spark particles from lightning hits
@@ -1756,6 +1885,7 @@ def main():
     (player, vlad, solids, daggers, wall_rects, floor_rects,
      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
     total_daggers = len(daggers)
+    player._total_daggers = total_daggers
     cam          = Camera()
     state        = "play"
     death_reason = ""
@@ -1781,6 +1911,7 @@ def main():
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
+                    player._total_daggers = total_daggers
                     state        = "play"
                     death_reason = ""
                     death_timer  = 0
@@ -1791,12 +1922,18 @@ def main():
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
+                    player._total_daggers = total_daggers
                     state = "play"; death_reason = ""; death_timer = 0
                     _update_caption()
                 # M → toggle mute
                 if event.key == pygame.K_m:
                     muted = not muted
                     pygame.mixer.music.set_volume(0.0 if muted else 1.0)
+                # Q → toggle path-to-Vlad (only with all daggers)
+                if event.key == pygame.K_q and player.daggers >= total_daggers:
+                    show_path = not show_path
+                    _path_to_vlad = []
+                    _path_timer   = 0
                 # [ → previous level
                 if event.key == pygame.K_LEFTBRACKET and len(level_index) > 1:
                     level_idx = (level_idx - 1) % len(level_index)
@@ -1804,6 +1941,7 @@ def main():
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
+                    player._total_daggers = total_daggers
                     state = "play"; death_reason = ""; death_timer = 0
                     _update_caption()
 
@@ -1845,79 +1983,62 @@ def main():
                     col * TILE + TILE // 2 + random.uniform(-8, 8),
                     row * TILE - SkullBall.R - 2))
 
-            # Lightning — collect from player, update, resolve hits
+            # Lightning — collect from player, build chain, update, resolve hits
             if player.pending_lightning:
                 bolt = player.pending_lightning
                 player.pending_lightning = None
                 lightnings.append(bolt)
-                flash_timer = 6   # screen flash on fire
-                # Clip bolt to nearest target in its direction
-                _candidates = []
-                if bolt.dir < 0:
-                    # firing left — targets must be to the left of player
-                    if vlad.rect.centerx < bolt.x_src:
-                        _candidates.append(vlad.rect.centerx)
-                    for _g in guards:
-                        if _g.alive and _g.rect.centerx < bolt.x_src:
-                            _candidates.append(_g.rect.centerx)
-                    for _fb in fireballs:
-                        if _fb.active and _fb.rect.centerx < bolt.x_src:
-                            _candidates.append(_fb.rect.centerx)
-                    for _gfb in guard_fbs:
-                        if _gfb.active and _gfb.rect.centerx < bolt.x_src:
-                            _candidates.append(_gfb.rect.centerx)
-                    if _candidates:
-                        bolt.set_target(max(_candidates))   # nearest = rightmost of those left
-                else:
-                    # firing right
-                    if vlad.rect.centerx > bolt.x_src:
-                        _candidates.append(vlad.rect.centerx)
-                    for _g in guards:
-                        if _g.alive and _g.rect.centerx > bolt.x_src:
-                            _candidates.append(_g.rect.centerx)
-                    for _fb in fireballs:
-                        if _fb.active and _fb.rect.centerx > bolt.x_src:
-                            _candidates.append(_fb.rect.centerx)
-                    for _gfb in guard_fbs:
-                        if _gfb.active and _gfb.rect.centerx > bolt.x_src:
-                            _candidates.append(_gfb.rect.centerx)
-                    if _candidates:
-                        bolt.set_target(min(_candidates))   # nearest = leftmost of those right
+                flash_timer = 6
+
+                # Collect all hittable targets in bolt direction, sort by distance
+                _hittable = (
+                    [vlad] +
+                    [g for g in guards if g.alive and g.mode in ("alert", "dropping", "floor")] +
+                    [f for f in fireballs if f.active] +
+                    [gf for gf in guard_fbs if gf.active]
+                )
+                def _in_dir(cx):
+                    return (bolt.dir < 0 and cx < bolt.x_src) or \
+                           (bolt.dir > 0 and cx > bolt.x_src)
+                _chain = sorted(
+                    [(abs(t.rect.centerx - bolt.x_src), t.rect.centerx, t)
+                     for t in _hittable if _in_dir(t.rect.centerx)],
+                    key=lambda e: e[0]
+                )
+                if _chain:
+                    bolt.set_chain([(cx, t) for _, cx, t in _chain])
 
             for bolt in lightnings[:]:
-                bolt.update()
+                newly_hit = bolt.update()
                 if not bolt.active:
                     lightnings.remove(bolt)
                     continue
-                # Scatter a few tiny sparks along the bolt path each frame
-                if bolt._pts and random.random() < 0.7:
+
+                # Process chain hits
+                for target in newly_hit:
+                    tx, ty = target.rect.centerx, target.rect.centery
+                    if target is vlad:
+                        _bolt_spark_burst(bolt_particles, tx, ty, 30)
+                        shake_timer = max(shake_timer, 10)
+                        vlad.stun_timer = max(vlad.stun_timer, STUN_DURATION)
+                    elif isinstance(target, Guard):
+                        if target.alive:
+                            target.alive = False
+                            _bolt_spark_burst(bolt_particles, tx, ty, 25)
+                            shake_timer = max(shake_timer, 8)
+                    else:   # Fireball or GuardFireball
+                        if target.active:
+                            target.active = False
+                            _bolt_spark_burst(bolt_particles, tx, ty, 18)
+                            shake_timer = max(shake_timer, 7)
+
+                # Scatter tiny sparks along active bolt path each frame
+                if bolt.life > 0 and bolt._pts and random.random() < 0.7:
                     px, py = random.choice(bolt._pts[1:-1]) if len(bolt._pts) > 2 else bolt._pts[0]
                     bolt_particles.append(Particle(
                         px, py,
                         random.uniform(-1.5, 1.5), random.uniform(-2.5, 0.5),
                         random.randint(5, 10), (220, 235, 255), max_r=2))
-                br = bolt.rect
-                for gfb in guard_fbs:           # cancel guard fireballs
-                    if gfb.active and br.colliderect(gfb.rect):
-                        gfb.active = False
-                        _bolt_spark_burst(bolt_particles, gfb.rect.centerx, gfb.rect.centery)
-                        shake_timer = max(shake_timer, 7)
-                for fb in fireballs:            # cancel Vlad's fireballs
-                    if fb.active and br.colliderect(fb.rect):
-                        fb.active = False
-                        _bolt_spark_burst(bolt_particles, fb.rect.centerx, fb.rect.centery)
-                        shake_timer = max(shake_timer, 7)
-                if br.colliderect(vlad.rect):   # stun Vlad
-                    if vlad.stun_timer < STUN_DURATION:
-                        _bolt_spark_burst(bolt_particles, vlad.rect.centerx, vlad.rect.centery, 30)
-                        shake_timer = max(shake_timer, 10)
-                    vlad.stun_timer = max(vlad.stun_timer, STUN_DURATION)
-                for g in guards:               # destroy active guards
-                    if g.alive and g.mode in ("alert", "dropping", "floor"):
-                        if br.colliderect(g.rect):
-                            g.alive = False
-                            _bolt_spark_burst(bolt_particles, g.rect.centerx, g.rect.centery, 25)
-                            shake_timer = max(shake_timer, 8)
 
             # Guards update + collect pending fireballs
             for g in guards:
@@ -1935,8 +2056,9 @@ def main():
                 if gfb.fully_dead:
                     guard_fbs.remove(gfb)
                 elif state == "play" and gfb.active and player.rect.colliderect(gfb.rect):
-                    state = "dead"; death_timer = 150
-                    death_reason = "Struck by a guard's fireball"
+                    if player.take_damage() and player.hp <= 0:
+                        state = "dead"; death_timer = 150
+                        death_reason = "Struck by a guard's fireball"
 
             # Guard ↔ player contact
             # Guards are only dangerous when actively attacking (dropping or hunting).
@@ -1946,10 +2068,11 @@ def main():
                     if player.daggers >= total_daggers:
                         g.alive = False          # player kills guard with daggers
                     elif g.mode in ("dropping", "floor"):
-                        state = "dead"; death_timer = 150
-                        death_reason = ("Crushed by a guard dropping from the ceiling"
-                                        if g.mode == "dropping"
-                                        else "Cut down by Vlad's guard")
+                        if player.take_damage() and player.hp <= 0:
+                            state = "dead"; death_timer = 150
+                            death_reason = ("Crushed by a guard dropping from the ceiling"
+                                            if g.mode == "dropping"
+                                            else "Cut down by Vlad's guard")
 
             # Collect pending fireball from Vlad
             if vlad.pending_fireball:
@@ -1962,8 +2085,9 @@ def main():
                 if not fb.active:
                     fireballs.remove(fb)
                 elif state == "play" and player.rect.colliderect(fb.rect):
-                    state = "dead"; death_timer = 150
-                    death_reason = "Burned alive by Vlad's fireball"
+                    if player.take_damage() and player.hp <= 0:
+                        state = "dead"; death_timer = 150
+                        death_reason = "Burned alive by Vlad's fireball"
 
             for d in daggers[:]:
                 if player.rect.colliderect(d):
@@ -1979,10 +2103,108 @@ def main():
                 state = "dead"; death_timer = 60
                 death_reason = "Fell into the abyss"
 
+            # Path-to-Vlad: recompute every 20 frames
+            if show_path and player.daggers >= total_daggers:
+                _path_timer -= 1
+                if _path_timer <= 0:
+                    _path_timer = 20
+                    pc = player.rect.centerx // TILE
+                    pr = (player.rect.bottom - 1) // TILE
+                    p_tile = (pc, pr)
+                    if p_tile not in NAV_GRAPH and NAV_GRAPH:
+                        p_tile = min(NAV_GRAPH, key=lambda t: abs(t[0]-pc) + abs(t[1]-pr))
+                    vc = vlad.rect.centerx // TILE
+                    vr = (vlad.rect.bottom - 1) // TILE
+                    v_tile = (vc, vr)
+                    if v_tile not in NAV_GRAPH and NAV_GRAPH:
+                        v_tile = min(NAV_GRAPH, key=lambda t: abs(t[0]-vc) + abs(t[1]-vr))
+                    _path_to_vlad = bfs_path(p_tile, v_tile)
+            else:
+                _path_to_vlad = []
+
         # ── Draw ─────────────────────────────────────────────────────────────
         screen.blit(bg, (0, 0))
         for r in wall_rects:  screen.blit(wall_img,  cam.apply(r))
         for r in floor_rects: screen.blit(floor_img, cam.apply(r))
+
+        # Path-to-Vlad overlay
+        if _path_to_vlad and len(_path_to_vlad) > 1:
+            pulse = int(180 + 60 * math.sin(pygame.time.get_ticks() * 0.006))
+
+            def _tile_screen(tc, tr):
+                return (tc * TILE + TILE // 2 - cam.ox,
+                        tr * TILE + TILE - 6  - cam.oy)
+
+            def _draw_dot(sx, sy, color=(255, 200, 50)):
+                ds = pygame.Surface((14, 14), pygame.SRCALPHA)
+                pygame.draw.circle(ds, (*color, pulse), (7, 7), 6)
+                pygame.draw.circle(ds, (255, 255, 200, 220), (7, 7), 3)
+                screen.blit(ds, (sx - 7, sy - 7))
+
+            def _draw_arrowhead(sx, sy, ex, ey, color):
+                dx, dy = ex - sx, ey - sy
+                dist   = math.hypot(dx, dy) or 1
+                udx, udy = dx / dist, dy / dist
+                mx, my   = (sx + ex) // 2, (sy + ey) // 2
+                tip  = (int(mx + udx * 7), int(my + udy * 7))
+                perp = (-udy, udx)
+                left = (int(mx - udx * 4 + perp[0] * 4), int(my - udy * 4 + perp[1] * 4))
+                rght = (int(mx - udx * 4 - perp[0] * 4), int(my - udy * 4 - perp[1] * 4))
+                pygame.draw.polygon(screen, color, [tip, left, rght])
+
+            for i, (tc, tr) in enumerate(_path_to_vlad):
+                wx, wy = _tile_screen(tc, tr)
+                on_screen = -16 <= wx <= GAME_W + 16 and -16 <= wy <= SCREEN_H + 16
+
+                if on_screen:
+                    _draw_dot(wx, wy)
+
+                if i + 1 >= len(_path_to_vlad):
+                    continue
+
+                nc, nr  = _path_to_vlad[i + 1]
+                nx, ny  = _tile_screen(nc, nr)
+                row_diff = tr - nr   # positive = moving up (jump), negative = falling
+
+                if row_diff > 0:
+                    # ── JUMP: draw a parabolic arc in cyan ───────────────────
+                    steps  = 18
+                    apex_y = min(wy, ny) - int(row_diff * TILE * 0.55)
+                    prev_pt = None
+                    for s in range(steps + 1):
+                        t = s / steps
+                        # quadratic bezier: start → apex → end
+                        bx = int((1-t)**2 * wx + 2*(1-t)*t * ((wx+nx)//2) + t**2 * nx)
+                        by = int((1-t)**2 * wy + 2*(1-t)*t * apex_y          + t**2 * ny)
+                        if not (-8 <= bx <= GAME_W + 8 and -8 <= by <= SCREEN_H + 8):
+                            prev_pt = None; continue
+                        arc_surf = pygame.Surface((8, 8), pygame.SRCALPHA)
+                        r_col    = int(50  + 180 * t)
+                        g_col    = int(200 - 100 * abs(t - 0.5) * 2)
+                        pygame.draw.circle(arc_surf, (r_col, g_col, 255, pulse), (4, 4), 3)
+                        screen.blit(arc_surf, (bx - 4, by - 4))
+                        if prev_pt and s % 5 == 0:   # arrowhead every 5 steps
+                            _draw_arrowhead(prev_pt[0], prev_pt[1], bx, by, (80, 200, 255))
+                        prev_pt = (bx, by)
+
+                elif row_diff < 0:
+                    # ── FALL: dashed vertical/diagonal line in orange ─────────
+                    steps = 10
+                    for s in range(steps + 1):
+                        t  = s / steps
+                        fx = int(wx + (nx - wx) * t)
+                        fy = int(wy + (ny - wy) * t)
+                        if s % 2 == 0 and -8 <= fx <= GAME_W + 8 and -8 <= fy <= SCREEN_H + 8:
+                            fs = pygame.Surface((8, 8), pygame.SRCALPHA)
+                            pygame.draw.circle(fs, (255, 150, 50, pulse), (4, 4), 3)
+                            screen.blit(fs, (fx - 4, fy - 4))
+                    if on_screen or (-16 <= nx <= GAME_W+16 and -16 <= ny <= SCREEN_H+16):
+                        _draw_arrowhead(wx, wy, nx, ny, (255, 150, 50))
+
+                else:
+                    # ── WALK: simple arrow in gold ────────────────────────────
+                    if on_screen or (-16 <= nx <= GAME_W+16 and -16 <= ny <= SCREEN_H+16):
+                        _draw_arrowhead(wx, wy, nx, ny, (255, 200, 50))
 
         for d in daggers:
             sr = cam.apply(d)
@@ -2011,7 +2233,13 @@ def main():
 
         vlad.draw(screen, cam, font_bang)
         player.draw(screen, cam)
-        draw_hud(screen, player, total_daggers, vlad, font, muted)
+        draw_hud(screen, player, total_daggers, vlad, font, muted, show_path)
+        if vlad.swap_reveal_timer > 0:
+            frac  = vlad.swap_reveal_timer / 180
+            alpha = int(255 * min(1.0, frac * 3))   # fade in quickly, linger, fade out
+            msg   = font.render("VLAD ESCAPED — FIND HIM!", True, (255, 80, 80))
+            msg.set_alpha(alpha)
+            screen.blit(msg, msg.get_rect(centerx=GAME_W // 2, y=SCREEN_H - 60))
         draw_chat_panel(screen, vlad.ai, font_small)
 
         if touching_early:
@@ -2031,6 +2259,7 @@ def main():
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
+                    player._total_daggers = total_daggers
                     state = "play"; death_reason = ""; death_timer = 0; win_timer = 0
                     _update_caption()
                 secs = (win_timer + 59) // 60
