@@ -1107,11 +1107,18 @@ class Vlad:
 # ── Lightning bolt ────────────────────────────────────────────────────────────
 class Lightning:
     def __init__(self, x, y, direction):
-        self.y      = y
-        self.x_src  = x
-        self.x_dst  = 0 if direction < 0 else LEVEL_PIXEL_W
-        self.life   = LIGHTNING_LIFE
-        self._pts   = []
+        self.y        = y
+        self.x_src    = x
+        self.dir      = direction
+        self.x_dst    = 0 if direction < 0 else LEVEL_PIXEL_W
+        self.life     = LIGHTNING_LIFE
+        self._pts     = []
+        self._branches = []  # list of point-lists for sub-bolts
+        self._gen()
+
+    def set_target(self, tx):
+        """Clip the bolt to stop at world-x tx (nearest hittable target)."""
+        self.x_dst = tx
         self._gen()
 
     def _gen(self):
@@ -1123,6 +1130,19 @@ class Lightning:
             pts.append((int(px), int(py)))
         pts.append((x2, self.y))
         self._pts = pts
+
+        # Branches: 2-3 short offshoots from interior points
+        self._branches = []
+        interior = pts[1:-1]
+        if len(interior) >= 2:
+            for origin in random.sample(interior, min(3, len(interior))):
+                blen   = random.randint(18, 55)
+                bangle = random.uniform(-0.9, 0.9)   # radians off horizontal
+                bx2    = int(origin[0] + self.dir * blen * math.cos(bangle))
+                by2    = int(origin[1] + blen * math.sin(bangle))
+                bmx    = (origin[0] + bx2) // 2
+                bmy    = (origin[1] + by2) // 2 + random.randint(-12, 12)
+                self._branches.append([origin, (bmx, bmy), (bx2, by2)])
 
     @property
     def active(self):
@@ -1142,17 +1162,31 @@ class Lightning:
     def draw(self, surface, cam):
         if not self.active:
             return
-        pts = [(p[0] - cam.ox, p[1] - cam.oy) for p in self._pts]
+        pts  = [(p[0] - cam.ox, p[1] - cam.oy) for p in self._pts]
         frac = self.life / LIGHTNING_LIFE
 
-        # Glow layers on an alpha surface
         gs = pygame.Surface((GAME_W, SCREEN_H), pygame.SRCALPHA)
+
+        # Branches — drawn first (behind main bolt), thinner + dimmer
+        for branch in self._branches:
+            bpts = [(p[0] - cam.ox, p[1] - cam.oy) for p in branch]
+            for i in range(len(bpts) - 1):
+                pygame.draw.line(gs, (60, 110, 255, int(35 * frac)), bpts[i], bpts[i+1], 6)
+                pygame.draw.line(gs, (130, 170, 255, int(60 * frac)), bpts[i], bpts[i+1], 2)
+
+        # Main bolt glow
         for i in range(len(pts) - 1):
             pygame.draw.line(gs, (80, 130, 255, int(45 * frac)), pts[i], pts[i+1], 12)
             pygame.draw.line(gs, (150, 190, 255, int(90 * frac)), pts[i], pts[i+1],  5)
         surface.blit(gs, (0, 0))
 
-        # Solid core
+        # Branch solid cores
+        for branch in self._branches:
+            bpts = [(p[0] - cam.ox, p[1] - cam.oy) for p in branch]
+            for i in range(len(bpts) - 1):
+                pygame.draw.line(surface, (160, 200, 255), bpts[i], bpts[i+1], 1)
+
+        # Main bolt solid core
         for i in range(len(pts) - 1):
             pygame.draw.line(surface, (190, 220, 255), pts[i], pts[i+1], 2)
             pygame.draw.line(surface, (255, 255, 255), pts[i], pts[i+1], 1)
@@ -1189,6 +1223,18 @@ class Particle:
                 int(self.color[1] * frac),
                 int(self.color[2] * frac))
         pygame.draw.circle(surface, col, (sx, sy), r)
+
+
+def _bolt_spark_burst(particles_list, cx, cy, count=22):
+    """Spawn blue-white sparks at world pos (cx, cy) into particles_list."""
+    for _ in range(count):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(1.5, 5.0)
+        vx    = speed * math.cos(angle)
+        vy    = speed * math.sin(angle) - 2
+        color = random.choice([(255, 255, 255), (180, 210, 255), (100, 160, 255)])
+        particles_list.append(
+            Particle(cx, cy, vx, vy, random.randint(12, 22), color, max_r=3))
 
 
 # ── GuardFireball (purple, particle trail) ────────────────────────────────────
@@ -1512,7 +1558,7 @@ def spawn_skulls(n=55):
 
 
 # ── HUD ───────────────────────────────────────────────────────────────────────
-def draw_hud(surface, player, total_daggers, vlad, font):
+def draw_hud(surface, player, total_daggers, vlad, font, muted=False):
     panel = pygame.Surface((520, 44), pygame.SRCALPHA)
     panel.fill((0, 0, 0, 160))
     surface.blit(panel, (8, 8))
@@ -1520,9 +1566,10 @@ def draw_hud(surface, player, total_daggers, vlad, font):
     state_txt = labels.get(vlad.state, vlad.state)
     fire_txt  = f"  🔥 {vlad.ammo}" if vlad.ammo > 0 else "  🔥 OUT"
     bolt_txt = f"Bolt:{player.lightning}" if player.lightning > 0 else "Bolt:OUT"
+    mute_txt  = "  [MUTED]" if muted else ""
     txt = font.render(
         f"Daggers: {player.daggers}/{total_daggers}    Vlad: {state_txt}  "
-        f"Vlad-FB:{vlad.ammo}   {bolt_txt}  [E]",
+        f"Vlad-FB:{vlad.ammo}   {bolt_txt}  [E]{mute_txt}",
         True, GOLD)
     surface.blit(txt, (14, 16))
 
@@ -1652,6 +1699,10 @@ def main():
     _update_caption()
 
     win_timer = 0   # counts down after win before auto-advancing
+    muted = False
+    flash_timer   = 0   # screen flash on bolt fire (frames)
+    shake_timer   = 0   # camera shake on hit (frames)
+    bolt_particles = []  # world-space spark particles from lightning hits
 
     BASE = os.path.join(os.path.dirname(__file__), "sprites")
     player_img = load_sprite(os.path.join(BASE, "assassin.png"), Player.W, Player.H)
@@ -1742,6 +1793,10 @@ def main():
                     total_daggers = len(daggers)
                     state = "play"; death_reason = ""; death_timer = 0
                     _update_caption()
+                # M → toggle mute
+                if event.key == pygame.K_m:
+                    muted = not muted
+                    pygame.mixer.music.set_volume(0.0 if muted else 1.0)
                 # [ → previous level
                 if event.key == pygame.K_LEFTBRACKET and len(level_index) > 1:
                     level_idx = (level_idx - 1) % len(level_index)
@@ -1760,6 +1815,18 @@ def main():
             player.update(solids)
             vlad.update(solids, player, guards)
             cam.update(player.rect)
+            # Camera shake
+            if shake_timer > 0:
+                shake_timer -= 1
+                cam.ox += random.randint(-5, 5)
+                cam.oy += random.randint(-4, 4)
+
+            # Tick bolt spark particles
+            bolt_particles[:] = [p for p in bolt_particles if p.update()]
+
+            # Tick flash
+            if flash_timer > 0:
+                flash_timer -= 1
 
             # Skull ball physics
             skull_grid.rebuild(skulls)
@@ -1780,26 +1847,77 @@ def main():
 
             # Lightning — collect from player, update, resolve hits
             if player.pending_lightning:
-                lightnings.append(player.pending_lightning)
+                bolt = player.pending_lightning
                 player.pending_lightning = None
+                lightnings.append(bolt)
+                flash_timer = 6   # screen flash on fire
+                # Clip bolt to nearest target in its direction
+                _candidates = []
+                if bolt.dir < 0:
+                    # firing left — targets must be to the left of player
+                    if vlad.rect.centerx < bolt.x_src:
+                        _candidates.append(vlad.rect.centerx)
+                    for _g in guards:
+                        if _g.alive and _g.rect.centerx < bolt.x_src:
+                            _candidates.append(_g.rect.centerx)
+                    for _fb in fireballs:
+                        if _fb.active and _fb.rect.centerx < bolt.x_src:
+                            _candidates.append(_fb.rect.centerx)
+                    for _gfb in guard_fbs:
+                        if _gfb.active and _gfb.rect.centerx < bolt.x_src:
+                            _candidates.append(_gfb.rect.centerx)
+                    if _candidates:
+                        bolt.set_target(max(_candidates))   # nearest = rightmost of those left
+                else:
+                    # firing right
+                    if vlad.rect.centerx > bolt.x_src:
+                        _candidates.append(vlad.rect.centerx)
+                    for _g in guards:
+                        if _g.alive and _g.rect.centerx > bolt.x_src:
+                            _candidates.append(_g.rect.centerx)
+                    for _fb in fireballs:
+                        if _fb.active and _fb.rect.centerx > bolt.x_src:
+                            _candidates.append(_fb.rect.centerx)
+                    for _gfb in guard_fbs:
+                        if _gfb.active and _gfb.rect.centerx > bolt.x_src:
+                            _candidates.append(_gfb.rect.centerx)
+                    if _candidates:
+                        bolt.set_target(min(_candidates))   # nearest = leftmost of those right
+
             for bolt in lightnings[:]:
                 bolt.update()
                 if not bolt.active:
                     lightnings.remove(bolt)
                     continue
+                # Scatter a few tiny sparks along the bolt path each frame
+                if bolt._pts and random.random() < 0.7:
+                    px, py = random.choice(bolt._pts[1:-1]) if len(bolt._pts) > 2 else bolt._pts[0]
+                    bolt_particles.append(Particle(
+                        px, py,
+                        random.uniform(-1.5, 1.5), random.uniform(-2.5, 0.5),
+                        random.randint(5, 10), (220, 235, 255), max_r=2))
                 br = bolt.rect
                 for gfb in guard_fbs:           # cancel guard fireballs
                     if gfb.active and br.colliderect(gfb.rect):
                         gfb.active = False
+                        _bolt_spark_burst(bolt_particles, gfb.rect.centerx, gfb.rect.centery)
+                        shake_timer = max(shake_timer, 7)
                 for fb in fireballs:            # cancel Vlad's fireballs
                     if fb.active and br.colliderect(fb.rect):
                         fb.active = False
+                        _bolt_spark_burst(bolt_particles, fb.rect.centerx, fb.rect.centery)
+                        shake_timer = max(shake_timer, 7)
                 if br.colliderect(vlad.rect):   # stun Vlad
+                    if vlad.stun_timer < STUN_DURATION:
+                        _bolt_spark_burst(bolt_particles, vlad.rect.centerx, vlad.rect.centery, 30)
+                        shake_timer = max(shake_timer, 10)
                     vlad.stun_timer = max(vlad.stun_timer, STUN_DURATION)
                 for g in guards:               # destroy active guards
                     if g.alive and g.mode in ("alert", "dropping", "floor"):
                         if br.colliderect(g.rect):
                             g.alive = False
+                            _bolt_spark_burst(bolt_particles, g.rect.centerx, g.rect.centery, 25)
+                            shake_timer = max(shake_timer, 8)
 
             # Guards update + collect pending fireballs
             for g in guards:
@@ -1885,12 +2003,15 @@ def main():
         for bolt in lightnings:
             bolt.draw(screen, cam)
 
+        for p in bolt_particles:
+            p.draw(screen, cam)
+
         for g in guards:
             g.draw(screen, cam, font_bang)
 
         vlad.draw(screen, cam, font_bang)
         player.draw(screen, cam)
-        draw_hud(screen, player, total_daggers, vlad, font)
+        draw_hud(screen, player, total_daggers, vlad, font, muted)
         draw_chat_panel(screen, vlad.ai, font_small)
 
         if touching_early:
@@ -1925,6 +2046,13 @@ def main():
             else:
                 draw_message(screen, "YOU FELL INTO THE DARKNESS...", font_big, RED,
                              reason=death_reason)
+
+        # Screen flash overlay (blue-white, fades quickly)
+        if flash_timer > 0:
+            alpha = int(180 * flash_timer / 6)
+            flash_surf = pygame.Surface((GAME_W, SCREEN_H), pygame.SRCALPHA)
+            flash_surf.fill((180, 210, 255, alpha))
+            screen.blit(flash_surf, (0, 0))
 
         pygame.display.flip()
 
