@@ -657,6 +657,7 @@ class SkullBall:
         self.vx    = random.uniform(-0.5, 0.5)
         self.vy    = 0.0
         self.angle = random.uniform(0, 360)   # degrees, for rolling visual
+        self._dead = False
 
     # ── tile collision via 4 face probes ─────────────────────────────────────
     def _tile_bounce(self):
@@ -729,13 +730,9 @@ class SkullBall:
             self.x = LEVEL_PIXEL_W - self.R; self.vx = -abs(self.vx) * self.BOUNCE
         if self.y - self.R < 0:
             self.y = self.R; self.vy = abs(self.vy) * self.BOUNCE
-        # respawn if fallen out of world
+        # mark dead if fallen into abyss — main loop will remove and respawn
         if self.y > LEVEL_PIXEL_H + 200:
-            nodes = list(NAV_GRAPH.keys())
-            if nodes:
-                col, row = random.choice(nodes)
-                self.x, self.y = col * TILE + TILE // 2, row * TILE - self.R
-            self.vx = self.vy = 0.0
+            self._dead = True
         self._tile_bounce()
         # rolling rotation: arc-length / radius → degrees
         self.angle += self.vx * (180.0 / (math.pi * self.R))
@@ -1766,8 +1763,20 @@ def main():
 
             # Skull ball physics
             skull_grid.rebuild(skulls)
-            for sk in skulls:
+            total_skulls = len(skulls)
+            for sk in skulls[:]:
                 sk.update(skull_grid, player.rect, vlad.rect)
+                if sk._dead:
+                    skulls.remove(sk)
+            # Respawn replacements above a random nav node so holes keep eating skulls
+            while len(skulls) < total_skulls:
+                nodes = list(NAV_GRAPH.keys())
+                if not nodes:
+                    break
+                col, row = random.choice(nodes)
+                skulls.append(SkullBall(
+                    col * TILE + TILE // 2 + random.uniform(-8, 8),
+                    row * TILE - SkullBall.R - 2))
 
             # Lightning — collect from player, update, resolve hits
             if player.pending_lightning:
@@ -1795,6 +1804,9 @@ def main():
             # Guards update + collect pending fireballs
             for g in guards:
                 g.update(solids, player, vlad_rect=vlad.rect)
+                # Kill guard if it falls into a floor hole / abyss
+                if g.alive and g.rect.top > LEVEL_PIXEL_H + TILE:
+                    g.alive = False
                 if g.pending_fb:
                     guard_fbs.append(g.pending_fb)
                     g.pending_fb = None
