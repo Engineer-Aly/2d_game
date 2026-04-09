@@ -2129,18 +2129,11 @@ def main():
             dbg.update(player, vlad)
             vlad.update(solids, player, guards)
             cam.update(player.rect)
-            # Camera shake
-            if shake_timer > 0:
-                shake_timer -= 1
-                cam.ox += random.randint(-5, 5)
-                cam.oy += random.randint(-4, 4)
 
             # Tick bolt spark particles
             bolt_particles[:] = [p for p in bolt_particles if p.update()]
 
-            # Tick flash
-            if flash_timer > 0:
-                flash_timer -= 1
+            # Tick flash (moved outside play block — see below)
 
             # Skull ball physics
             skull_grid.rebuild(skulls)
@@ -2234,6 +2227,7 @@ def main():
                 elif state == "play" and gfb.active and player.rect.colliderect(gfb.rect):
                     if player.take_damage() and player.hp <= 0:
                         state = "dead"; death_timer = 150
+                        shake_timer = 45; flash_timer = 20
                         death_reason = "Struck by a guard's fireball"
 
             # Guard ↔ player contact
@@ -2246,6 +2240,7 @@ def main():
                     elif g.mode in ("dropping", "floor"):
                         if player.take_damage() and player.hp <= 0:
                             state = "dead"; death_timer = 150
+                            shake_timer = 45; flash_timer = 20
                             death_reason = ("Crushed by a guard dropping from the ceiling"
                                             if g.mode == "dropping"
                                             else "Cut down by Vlad's guard")
@@ -2263,6 +2258,7 @@ def main():
                 elif state == "play" and player.rect.colliderect(fb.rect):
                     if player.take_damage() and player.hp <= 0:
                         state = "dead"; death_timer = 150
+                        shake_timer = 45; flash_timer = 20
                         death_reason = "Burned alive by Vlad's fireball"
 
             for d in daggers[:]:
@@ -2277,6 +2273,7 @@ def main():
 
             if state == "play" and player.rect.bottom > LEVEL_PIXEL_H + TILE:
                 state = "dead"; death_timer = 60
+                shake_timer = 30; flash_timer = 15
                 death_reason = "Fell into the abyss"
 
             # Path-to-Vlad: recompute every 20 frames
@@ -2452,11 +2449,26 @@ def main():
                 draw_message(screen, "YOU FELL INTO THE DARKNESS...", font_big, RED,
                              reason=death_reason)
 
-        # Screen flash overlay (blue-white, fades quickly)
+        # Always tick flash and shake regardless of game state
+        if shake_timer > 0:
+            shake_timer -= 1
+            amp = min(shake_timer, 12) if state == "dead" else 5
+            cam.ox += random.randint(-amp, amp)
+            cam.oy += random.randint(-amp, amp)
         if flash_timer > 0:
-            alpha = int(180 * flash_timer / 6)
+            flash_timer -= 1
+
+        # Screen flash overlay — red on death, blue-white on lightning
+        if flash_timer > 0:
+            if state == "dead":
+                base    = min(flash_timer, 20)
+                alpha   = min(255, int(200 * base / 20))
+                color   = (200, 10, 10, alpha)
+            else:
+                alpha   = min(255, int(180 * flash_timer / 6))
+                color   = (180, 210, 255, alpha)
             flash_surf = pygame.Surface((GAME_W, SCREEN_H), pygame.SRCALPHA)
-            flash_surf.fill((180, 210, 255, alpha))
+            flash_surf.fill(color)
             screen.blit(flash_surf, (0, 0))
 
         pygame.display.flip()
