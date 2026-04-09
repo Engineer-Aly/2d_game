@@ -706,9 +706,10 @@ class SpatialGrid:
 class SkullBall:
     R      = 14       # radius px
     _img   = None     # set after pygame.init() in main()
-    BOUNCE = 0.62     # restitution vs tiles / walls
-    FRIC   = 0.985    # per-frame horizontal friction on floor
-    BALL_E = 0.75     # restitution ball–ball / ball–character
+    BOUNCE  = 0.62    # restitution vs tiles / walls
+    FRIC    = 0.985   # per-frame horizontal friction on floor
+    BALL_E  = 0.75    # restitution ball–ball collisions
+    PUSH_E  = 0.18    # restitution when pushed by a character (heavy skull feel)
 
     def __init__(self, x, y):
         self.x     = float(x)
@@ -761,7 +762,7 @@ class SkullBall:
             other.vx += imp * nx;  other.vy += imp * ny
 
     # ── bounce off a character rect ──────────────────────────────────────────
-    def collide_rect(self, rect):
+    def collide_rect(self, rect, char_vx=0, char_vy=0):
         R  = self.R
         cx = max(rect.left, min(self.x, rect.right))
         cy = max(rect.top,  min(self.y, rect.bottom))
@@ -769,16 +770,18 @@ class SkullBall:
         dist   = math.hypot(dx, dy)
         if dist == 0 or dist >= R:
             return
-        nx, ny  = dx / dist, dy / dist
+        nx, ny = dx / dist, dy / dist
         self.x += nx * (R - dist + 0.5)
         self.y += ny * (R - dist + 0.5)
-        rel_vn  = self.vx * nx + self.vy * ny
+        # use relative velocity so a moving player always pushes a still skull
+        rel_vn = (self.vx - char_vx) * nx + (self.vy - char_vy) * ny
         if rel_vn < 0:
-            self.vx -= (1 + self.BALL_E) * rel_vn * nx
-            self.vy -= (1 + self.BALL_E) * rel_vn * ny
+            imp     = (1 + self.PUSH_E) * rel_vn
+            self.vx -= imp * nx
+            self.vy -= imp * ny
 
     # ── per-frame physics step ────────────────────────────────────────────────
-    def update(self, skull_grid, player_rect, vlad_rect):
+    def update(self, skull_grid, player, vlad):
         self.vy = min(self.vy + GRAVITY, 18)
         self.x += self.vx
         self.y += self.vy
@@ -799,9 +802,9 @@ class SkullBall:
         for other in skull_grid.nearby(self.x, self.y):
             if other is not self:
                 self.collide_ball(other)
-        # character collisions
-        self.collide_rect(player_rect)
-        self.collide_rect(vlad_rect)
+        # character collisions — pass velocity so still skulls always get pushed
+        self.collide_rect(player.rect, player.vx, player.vy)
+        self.collide_rect(vlad.rect,   vlad.vx,   vlad.vy)
 
     # ── draw skull sprite (rotated for rolling) ───────────────────────────────
     def draw(self, surface, cam):
@@ -2183,7 +2186,7 @@ def main():
             skull_grid.rebuild(skulls)
             total_skulls = len(skulls)
             for sk in skulls[:]:
-                sk.update(skull_grid, player.rect, vlad.rect)
+                sk.update(skull_grid, player, vlad)
                 if sk._dead:
                     skulls.remove(sk)
             # Respawn replacements above a random nav node so holes keep eating skulls
