@@ -30,6 +30,8 @@ ROAM_INTERVAL = 6.0     # seconds between random roam destinations
 TILE         = 48
 JUMP_TILES   = 4        # max tiles Vlad can jump up in nav graph
 
+WALL_SLIDE_SPEED   = 1.5   # max fall speed when sliding on wall (px/frame)
+
 PLAYER_MAX_HP      = 5
 PLAYER_IFRAMES     = 60   # invincibility frames after taking damage (~1 s)
 LIGHTNING_CHARGES  = 3
@@ -509,6 +511,8 @@ class Player:
         self.pending_lightning = None
         self.hp               = PLAYER_MAX_HP
         self.invincible       = 0   # countdown iframes
+        self.wall_sliding     = False
+        self.wall_dir         = 0   # -1 = wall on left, 1 = wall on right
 
     def _can_stand(self):
         """Return True if there is enough vertical space to stand up."""
@@ -548,8 +552,32 @@ class Player:
             self.vx = -PLAYER_SPEED; self.img_flip = True
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             self.vx =  PLAYER_SPEED; self.img_flip = False
-        if (keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_SPACE]) and self.on_ground and not self.crouching:
+        jump = keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_SPACE]
+        if jump and self.on_ground and not self.crouching:
             self.vy = JUMP_FORCE; self.on_ground = False
+        elif jump and self.wall_sliding:
+            # wall jump — launch away from wall and upward
+            self.vy           = JUMP_FORCE * 0.9
+            self.vx           = -self.wall_dir * PLAYER_SPEED * 2
+            self.img_flip     = self.wall_dir > 0   # face away from wall
+            self.wall_sliding = False
+
+    def _touching_wall(self, tiles):
+        """Return -1/1 if touching a wall tile that has another solid tile
+        directly above or below it (i.e. not an isolated single tile)."""
+        mid_y  = self.rect.centery
+        wall_row = int(mid_y) // TILE
+
+        # tile column just outside each side
+        col_l = (self.rect.left  - 2) // TILE
+        col_r =  self.rect.right      // TILE
+
+        for side, col in ((-1, col_l), (1, col_r)):
+            if _is_solid(col, wall_row):
+                # allow slide only if there is another solid tile above OR below
+                if _is_solid(col, wall_row - 1) or _is_solid(col, wall_row + 1):
+                    return side
+        return 0
 
     def take_damage(self):
         """Returns True if damage was dealt (not invincible), False if blocked by iframes."""
@@ -563,11 +591,27 @@ class Player:
         if self.invincible > 0:
             self.invincible -= 1
         self.vy, self.on_ground = apply_physics(self.rect, self.vx, self.vy, tiles)
+        # Wall slide: airborne + pressing into a wall → slow the fall
+        if not self.on_ground and not self.crouching:
+            self.wall_dir = self._touching_wall(tiles)
+            pressing_into = (self.wall_dir == -1 and self.vx < 0) or \
+                            (self.wall_dir ==  1 and self.vx > 0)
+            if self.wall_dir != 0 and pressing_into:
+                self.wall_sliding = True
+                if self.vy > WALL_SLIDE_SPEED:
+                    self.vy = WALL_SLIDE_SPEED
+            else:
+                self.wall_sliding = False
+        else:
+            self.wall_sliding = False
+            self.wall_dir     = 0
 
     def draw(self, surface, cam):
         r = cam.apply(self.rect)
         if self.crouching:
             img = self.crouch_img
+        elif self.wall_sliding:
+            img = self.img   # standing sprite — looks like gripping the wall
         elif self.vx != 0 and self.walk_img:
             img = self.walk_img
         else:
