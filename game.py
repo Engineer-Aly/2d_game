@@ -1949,9 +1949,50 @@ def main():
     total_daggers = len(daggers)
     player._total_daggers = total_daggers
     cam          = Camera()
-    state        = "play"
+    state        = "intro"
     death_reason = ""
     death_timer  = 0    # frames to wait before showing death overlay
+
+    # ── Narrative intro ───────────────────────────────────────────────────────
+    INTRO_LINES = [
+        ("",                                                                    "gap"),
+        ("Constantinople, 1462.",                                               "title"),
+        ("",                                                                    "gap"),
+        ("The land bleeds.",                                                    "body"),
+        ("From the mountains of Wallachia, a darkness spreads —",              "body"),
+        ("villages emptied, soldiers drained of life,",                        "body"),
+        ("and at its heart: Vlad the Impaler.",                                "body"),
+        ("",                                                                    "gap"),
+        ("No army has reached him.",                                            "body"),
+        ("No siege has broken his castle walls.",                               "body"),
+        ("His vampire guards patrol every corridor,",                          "body"),
+        ("his skull servants hunt without rest.",                               "body"),
+        ("",                                                                    "gap"),
+        ("The Sultan grows desperate.",                                         "body"),
+        ("",                                                                    "gap"),
+        ("You are summoned to the palace at midnight.",                         "body"),
+        ("The Sultan's voice is low. His eyes, hollow.",                       "body"),
+        ("",                                                                    "gap"),
+        ('"Assassin."',                                                         "sultan"),
+        ('"My armies cannot touch him. But you can."',                         "sultan"),
+        ('"Infiltrate his castle. Collect the sacred daggers —',               "sultan"),
+        (' they are the only weapons that can end him."',                      "sultan"),
+        ('"Find Vlad. End this curse."',                                       "sultan"),
+        ('"You are the last hope of the living."',                             "sultan"),
+        ("",                                                                    "gap"),
+        ("You ask for nothing in return.",                                      "body"),
+        ("You never do.",                                                       "body"),
+        ("",                                                                    "gap"),
+        ("─" * 38,                                                             "divider"),
+        ("",                                                                    "gap"),
+        ("THE  ASSASSIN",                                                       "game_title"),
+        ("",                                                                    "gap"),
+        ("Press  SPACE  to begin  —  or  ESC  to quit",                        "hint"),
+    ]
+    _intro_line   = 0     # which line we are printing
+    _intro_char   = 0.0   # float chars revealed in current line
+    _intro_pause  = 0     # pause frames between lines
+    _intro_done   = False # all text shown
 
     bg = pygame.Surface((GAME_W, SCREEN_H))
     for y in range(SCREEN_H):
@@ -1969,6 +2010,14 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit(); sys.exit()
+                # SPACE during intro: skip to end or start game
+                if event.key == pygame.K_SPACE and state == "intro":
+                    if _intro_done:
+                        state = "play"
+                    else:
+                        _intro_line  = len(INTRO_LINES) - 1
+                        _intro_char  = len(INTRO_LINES[-1][0])
+                        _intro_done  = True
                 if event.key == pygame.K_r:
                     (player, vlad, solids, daggers, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
@@ -2009,6 +2058,67 @@ def main():
                     player._total_daggers = total_daggers
                     state = "play"; death_reason = ""; death_timer = 0
                     _update_caption()
+
+        # ── Intro state ───────────────────────────────────────────────────────
+        if state == "intro":
+            screen.fill((0, 0, 0))
+
+            CW = SCREEN_W // 2
+            y  = 60
+
+            for i, (text, kind) in enumerate(INTRO_LINES):
+                # determine how many chars of this line to show
+                if i < _intro_line:
+                    visible = text
+                elif i == _intro_line:
+                    visible = text[:int(_intro_char)]
+                else:
+                    break   # lines beyond current are hidden
+
+                if kind == "gap":
+                    y += 10; continue
+                if kind == "divider":
+                    pygame.draw.line(screen, (80, 60, 30),
+                                     (CW - 180, y + 8), (CW + 180, y + 8), 1)
+                    y += 20; continue
+
+                if kind == "title":
+                    color = (200, 170, 80)
+                    surf  = font_bang.render(visible, True, color)
+                elif kind == "sultan":
+                    color = (255, 200, 80)
+                    surf  = font.render(visible, True, color)
+                elif kind == "game_title":
+                    color = (220, 60, 60)
+                    surf  = font_big.render(visible, True, color)
+                elif kind == "hint":
+                    pulse = abs(math.sin(pygame.time.get_ticks() / 600))
+                    color = (int(120 + 80 * pulse),) * 3
+                    surf  = font.render(visible, True, color)
+                else:  # body
+                    color = (190, 185, 175)
+                    surf  = font.render(visible, True, color)
+
+                screen.blit(surf, surf.get_rect(centerx=CW, y=y))
+                y += surf.get_height() + 4
+
+            # typewriter advance
+            if not _intro_done:
+                if _intro_pause > 0:
+                    _intro_pause -= 1
+                else:
+                    cur_text = INTRO_LINES[_intro_line][0]
+                    _intro_char += 2.5   # chars per frame
+                    if _intro_char >= len(cur_text):
+                        _intro_char  = len(cur_text)
+                        _intro_line += 1
+                        _intro_pause = 18  # short pause between lines
+                        if _intro_line >= len(INTRO_LINES):
+                            _intro_line = len(INTRO_LINES) - 1
+                            _intro_done = True
+
+            pygame.display.flip()
+            continue   # skip the rest of the game loop while in intro
 
         touching_early = False
 
