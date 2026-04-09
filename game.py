@@ -8,6 +8,7 @@ import math
 import random
 import urllib.request
 from collections import deque
+from debug import DebugLogger
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 GAME_W   = 1024          # playable area width
@@ -1702,8 +1703,8 @@ def draw_hud(surface, player, total_daggers, vlad, font, muted=False, show_path=
 
 CHAT_W = 270
 
-def draw_chat_panel(surface, vlad_ai, font_small):
-    """Right-side panel showing Ollama input/output history."""
+def draw_chat_panel(surface, vlad_ai, font_small, dbg=None, player=None, vlad=None):
+    """Right-side panel showing Ollama input/output history (+ debug section when active)."""
     log     = vlad_ai.get_log()
     panel_x = GAME_W          # starts right after game area
     panel_h = SCREEN_H
@@ -1720,12 +1721,72 @@ def draw_chat_panel(surface, vlad_ai, font_small):
     surface.blit(title, (px, 8))
     pygame.draw.line(surface, GOLD, (panel_x + 2, 28), (SCREEN_W - 2, 28), 1)
 
+    y = 34
+
+    # ── Debug section (when F1 active) ────────────────────────────────────────
+    if dbg and dbg.enabled and player and vlad:
+        def _dbg_row(label, value, col):
+            lbl = font_small.render(f"{label}:", True, (150, 150, 150))
+            val = font_small.render(str(value),  True, col)
+            surface.blit(lbl, (px, y));  surface.blit(val, (px + 68, y))
+
+        WHITE  = (255, 255, 255)
+        GREEN  = (80,  255, 120)
+        YELLOW = (255, 220,  60)
+        RED    = (255,  80,  80)
+        CYAN   = (80,  220, 255)
+        ORANGE = (255, 140,  40)
+
+        # player block
+        surface.blit(font_small.render("─ PLAYER ─", True, YELLOW), (px, y)); y += 16
+        for label, value, col in [
+            ("POS",    f"x={player.rect.x} y={player.rect.y}", WHITE),
+            ("TILE",   f"col={player.rect.x//TILE} row={player.rect.y//TILE}", YELLOW),
+            ("VEL",    f"vx={player.vx:.1f} vy={player.vy:.1f}", GREEN),
+            ("STATE",  ("crouching" if player.crouching else
+                        "walking"   if player.vx != 0   else
+                        "airborne"  if not player.on_ground else "standing"), GREEN),
+            ("GROUND", str(player.on_ground), GREEN if player.on_ground else RED),
+            ("HP",     str(player.hp),        WHITE),
+            ("DAGGERS",str(player.daggers),   YELLOW),
+        ]:
+            lbl = font_small.render(f"{label}:", True, (150, 150, 150))
+            val = font_small.render(str(value),  True, col)
+            surface.blit(lbl, (px, y));  surface.blit(val, (px + 68, y));  y += 16
+
+        pygame.draw.line(surface, (60, 50, 40), (panel_x + 4, y), (SCREEN_W - 4, y), 1)
+        y += 6
+
+        # vlad block
+        surface.blit(font_small.render("─ VLAD ─", True, ORANGE), (px, y)); y += 16
+        stun_val = f"{vlad.stun_timer}f" if vlad.stun_timer > 0 else "no"
+        for label, value, col in [
+            ("POS",    f"x={vlad.rect.x} y={vlad.rect.y}",             WHITE),
+            ("TILE",   f"col={vlad.rect.x//TILE} row={vlad.rect.y//TILE}", ORANGE),
+            ("VEL",    f"vx={vlad.vx:.1f} vy={vlad.vy:.1f}",           GREEN),
+            ("STATE",  vlad.state,                                       CYAN),
+            ("STRAT",  vlad.ai.strategy(),                               CYAN),
+            ("GROUND", str(vlad.on_ground), GREEN if vlad.on_ground else RED),
+            ("SEES",   str(vlad.sees_player), RED if vlad.sees_player else WHITE),
+            ("AMMO",   str(vlad.ammo),        WHITE),
+            ("STUN",   stun_val,              RED if vlad.stun_timer > 0 else WHITE),
+            ("SWAP",   "YES" if vlad.swap_used else "no",
+                       ORANGE if vlad.swap_used else WHITE),
+        ]:
+            lbl = font_small.render(f"{label}:", True, (150, 150, 150))
+            val = font_small.render(str(value),  True, col)
+            surface.blit(lbl, (px, y));  surface.blit(val, (px + 68, y));  y += 16
+
+        pygame.draw.line(surface, GOLD, (panel_x + 2, y), (SCREEN_W - 2, y), 1)
+        y += 6
+        surface.blit(font_small.render("─ VLAD AI LOG ─", True, GOLD), (px, y)); y += 18
+
+    # ── LLM log ───────────────────────────────────────────────────────────────
     if not log:
         hint = font_small.render("Waiting for line-of-sight...", True, (120, 120, 120))
-        surface.blit(hint, (px, 40))
+        surface.blit(hint, (px, y))
         return
 
-    y = 34
     for entry in reversed(log):          # newest first
         ts = font_small.render(entry["time"], True, (120, 120, 120))
         surface.blit(ts, (px, y)); y += 16
@@ -1826,7 +1887,8 @@ def main():
 
     win_timer = 0   # counts down after win before auto-advancing
     muted = False
-    show_path      = False   # Q toggles path-to-Vlad overlay
+    show_path      = False
+    dbg = DebugLogger()   # Q toggles path-to-Vlad overlay
     _path_to_vlad  = []      # cached tile path
     _path_timer    = 0       # recompute every N frames
     flash_timer   = 0   # screen flash on bolt fire (frames)
@@ -1843,7 +1905,7 @@ def main():
         SkullBall._img = skull_img
     walk_img   = load_sprite(os.path.join(BASE, "walking.png"), Player.W, Player.H)
     crouch_img = load_sprite(os.path.join(BASE, "crouch.png"), Player.W, Player.CRAWL_H)
-    vlad_img   = load_sprite(os.path.join(BASE, "vlad.png"),       Vlad.W, Vlad.H * 2)
+    vlad_img   = load_sprite(os.path.join(BASE, "vlad.png"),       Vlad.W, int(Vlad.H * 1.5))
     if vlad_img:
         vlad_img = pygame.transform.flip(vlad_img, True, False)
     # Guard: same sprite as Vlad, scaled smaller, tinted near-black
@@ -1925,6 +1987,9 @@ def main():
                     player._total_daggers = total_daggers
                     state = "play"; death_reason = ""; death_timer = 0
                     _update_caption()
+                # F1 → toggle debug mode
+                if event.key == pygame.K_F1:
+                    dbg.toggle()
                 # M → toggle mute
                 if event.key == pygame.K_m:
                     muted = not muted
@@ -1951,6 +2016,7 @@ def main():
             keys = pygame.key.get_pressed()
             player.handle_input(keys)
             player.update(solids)
+            dbg.update(player, vlad)
             vlad.update(solids, player, guards)
             cam.update(player.rect)
             # Camera shake
@@ -2240,7 +2306,7 @@ def main():
             msg   = font.render("VLAD ESCAPED — FIND HIM!", True, (255, 80, 80))
             msg.set_alpha(alpha)
             screen.blit(msg, msg.get_rect(centerx=GAME_W // 2, y=SCREEN_H - 60))
-        draw_chat_panel(screen, vlad.ai, font_small)
+        draw_chat_panel(screen, vlad.ai, font_small, dbg, player, vlad)
 
         if touching_early:
             warn = font.render(
