@@ -709,7 +709,7 @@ class SkullBall:
     BOUNCE  = 0.62    # restitution vs tiles / walls
     FRIC    = 0.985   # per-frame horizontal friction on floor
     BALL_E  = 0.75    # restitution ball–ball collisions
-    PUSH_E  = 0.18    # restitution when pushed by a character (heavy skull feel)
+    PUSH_E  = 0.08    # restitution when pushed by a character (heavy skull feel)
 
     def __init__(self, x, y):
         self.x     = float(x)
@@ -776,9 +776,9 @@ class SkullBall:
         # use relative velocity so a moving player always pushes a still skull
         rel_vn = (self.vx - char_vx) * nx + (self.vy - char_vy) * ny
         if rel_vn < 0:
-            imp     = (1 + self.PUSH_E) * rel_vn
-            self.vx -= imp * nx
-            self.vy -= imp * ny
+            # PUSH_E is a direct fraction of relative speed — keeps skull slow/heavy
+            self.vx -= self.PUSH_E * rel_vn * nx
+            self.vy -= self.PUSH_E * rel_vn * ny
 
     # ── per-frame physics step ────────────────────────────────────────────────
     def update(self, skull_grid, player, vlad):
