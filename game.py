@@ -864,6 +864,103 @@ class SkullBall:
             surface.blit(rotated, rotated.get_rect(center=(sx, sy)))
 
 
+# ── PressurePlate ─────────────────────────────────────────────────────────────
+class PressurePlate:
+    """Floor tile (T in level file). When player stands on it, all ceiling guards drop."""
+    W, H = TILE, 8   # thin strip at floor level
+
+    def __init__(self, x, y):
+        # x,y = top-left of the tile cell; plate sits at the bottom of that cell
+        self.rect      = pygame.Rect(x, y + TILE - self.H, self.W, self.H)
+        self.solid_rect = pygame.Rect(x, y, TILE, TILE)   # full tile collision
+        self.triggered = False
+        self._tick     = 0
+
+    def update(self, player_rect, guards):
+        if self.triggered:
+            return
+        # Fire when player stands on this tile (feet touch the plate)
+        if player_rect.colliderect(self.rect):
+            self.triggered = True
+            for g in guards:
+                if g.alive and g.mode == "ceiling":
+                    g.mode = "dropping"
+
+    def draw(self, surface, cam):
+        sr = cam.apply(self.solid_rect)
+        # Draw as a floor tile with a glowing strip indicator
+        pygame.draw.rect(surface, (80, 60, 30), sr)
+        self._tick += 1
+        if not self.triggered:
+            pulse = int(180 + 60 * math.sin(self._tick * 0.08))
+            strip = cam.apply(self.rect)
+            indicator = pygame.Surface((strip.width, strip.height), pygame.SRCALPHA)
+            indicator.fill((220, 180, 40, pulse))
+            surface.blit(indicator, strip.topleft)
+        else:
+            strip = cam.apply(self.rect)
+            pygame.draw.rect(surface, (120, 90, 30), strip)
+
+
+# ── FallingBlock ───────────────────────────────────────────────────────────────
+class FallingBlock:
+    """Ceiling tile (B in level file). Solid until player walks under it, then falls."""
+    TRIGGER_RANGE = TILE * 2   # horizontal distance that triggers the drop
+
+    def __init__(self, x, y):
+        self.rect    = pygame.Rect(x, y, TILE, TILE)
+        self.state   = "idle"   # "idle" → "shaking" → "falling" → "landed"
+        self._shake  = 0        # shake countdown before fall
+        self._tick   = 0
+
+    @property
+    def solid(self):
+        """Block is solid as long as it hasn't started falling yet."""
+        return self.state in ("idle", "shaking")
+
+    def update(self, player_rect, tiles):
+        self._tick += 1
+        if self.state == "idle":
+            if abs(self.rect.centerx - player_rect.centerx) < self.TRIGGER_RANGE:
+                # Player is beneath or nearby — start shake
+                if player_rect.top > self.rect.bottom:   # player is below this block
+                    self.state = "shaking"
+                    self._shake = 40   # frames of warning shake
+        elif self.state == "shaking":
+            self._shake -= 1
+            if self._shake <= 0:
+                self.state = "falling"
+        elif self.state == "falling":
+            self.rect.y += 8   # fall speed
+            # Check tile collision below
+            for t in tiles:
+                if self.rect.colliderect(t) and t not in (self.rect,):
+                    self.rect.bottom = t.top
+                    self.state = "landed"
+                    break
+            if self.rect.top > LEVEL_PIXEL_H:
+                self.state = "landed"   # fell into abyss
+
+    def draw(self, surface, cam):
+        if self.state == "landed" and self.rect.top > LEVEL_PIXEL_H:
+            return
+        sr = cam.apply(self.rect)
+        shake_x = 0
+        if self.state == "shaking":
+            shake_x = int(3 * math.sin(self._tick * 1.2))
+        r = pygame.Rect(sr.x + shake_x, sr.y, sr.width, sr.height)
+        pygame.draw.rect(surface, (90, 70, 50), r)
+        pygame.draw.rect(surface, (140, 110, 70), r, 2)
+        if self.state != "idle":
+            crack = pygame.Surface((r.width, r.height), pygame.SRCALPHA)
+            alpha = 80 if self.state == "shaking" else 200
+            pygame.draw.line(crack, (200, 160, 80, alpha),
+                             (r.width // 3, 2), (r.width // 2, r.height - 2), 2)
+            pygame.draw.line(crack, (200, 160, 80, alpha),
+                             (2 * r.width // 3, 2), (r.width // 2, r.height - 2), 2)
+            surface.blit(crack, r.topleft)
+
+
 # ── MagicOrb (double-jump pickup) ────────────────────────────────────────────
 class MagicOrb:
     R = 14
@@ -1755,7 +1852,9 @@ def make_fallback(w, h, colour):
 # ── Level build ───────────────────────────────────────────────────────────────
 def build_level():
     solids = []; daggers = []; wall_rects = []; floor_rects = []
-    magic_orbs    = []
+    magic_orbs      = []
+    pressure_plates = []
+    falling_blocks  = []
     player_start  = (TILE + 8, (LEVEL_ROWS - 2) * TILE - Player.H)
     vlad_start    = None
     guard_starts  = []
@@ -1776,12 +1875,24 @@ def build_level():
                 daggers.append(pygame.Rect(x + 12, y + 8, 24, 40))
             elif ch == 'J':
                 magic_orbs.append(MagicOrb(x + TILE // 2, y + TILE // 2))
+            elif ch == 'T':
+                # Pressure plate — acts as solid floor, triggers guard drop when stepped on
+                pp = PressurePlate(x, y)
+                solids.append(pp.solid_rect); floor_rects.append(pp.solid_rect)
+                pressure_plates.append(pp)
+            elif ch == 'B':
+                # Falling block — solid ceiling tile until player walks under it
+                fb = FallingBlock(x, y)
+                solids.append(fb.rect)   # initial solid (will be removed when falling)
+                falling_blocks.append(fb)
             elif ch == 'V':
                 vlad_start = (x + 4, (row + 1) * TILE - Vlad.H)
             elif ch == 'P':
                 player_start = (col * TILE + 4, (row + 1) * TILE - Player.H)
 
-    return solids, daggers, magic_orbs, wall_rects, floor_rects, player_start, vlad_start, guard_starts
+    return (solids, daggers, magic_orbs, wall_rects, floor_rects,
+            pressure_plates, falling_blocks,
+            player_start, vlad_start, guard_starts)
 
 
 # ── Skull spawn ───────────────────────────────────────────────────────────────
@@ -2098,7 +2209,9 @@ def main():
 
     def reset():
         nonlocal vlad_spawn
-        solids, daggers, magic_orbs, wall_rects, floor_rects, pstart, vstart, gstarts = build_level()
+        (solids, daggers, magic_orbs, wall_rects, floor_rects,
+         pressure_plates, falling_blocks,
+         pstart, vstart, gstarts) = build_level()
         player     = Player(*pstart, player_img, crouch_img, walk_img)
         vlad_spawn = vstart or (LEVEL_COLS // 2 * TILE, TILE * 2)
         vlad       = Vlad(*vlad_spawn, vlad_img)
@@ -2111,11 +2224,12 @@ def main():
                 g.move_dir = -1
             guards_list.append(g)
         return (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
-                [], guards_list, [], skulls, skull_grid, [])
+                [], guards_list, [], skulls, skull_grid, [], pressure_plates, falling_blocks)
 
     vlad_spawn = (LEVEL_COLS // 2 * TILE, TILE * 2)   # overwritten by reset()
     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
-     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
+     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
+     pressure_plates, falling_blocks) = reset()
     total_daggers = len(daggers)
     player._total_daggers = total_daggers
     cam          = Camera()
@@ -2200,7 +2314,8 @@ def main():
                         _intro_done  = True
                 if event.key == pygame.K_r:
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
-                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
+                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
+     pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
                     state        = "play"
@@ -2212,7 +2327,8 @@ def main():
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
-                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
+                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
+     pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
                     state = "play"; death_reason = ""; death_timer = 0
@@ -2235,7 +2351,8 @@ def main():
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
-                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
+                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
+     pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
                     state = "play"; death_reason = ""; death_timer = 0
@@ -2390,6 +2507,30 @@ def main():
                         px, py,
                         random.uniform(-1.5, 1.5), random.uniform(-2.5, 0.5),
                         random.randint(5, 10), (220, 235, 255), max_r=2))
+
+            # Pressure plates
+            for pp in pressure_plates:
+                pp.update(player.rect, guards)
+
+            # Falling blocks — manage solid list dynamically
+            for fb in falling_blocks:
+                was_solid = fb.solid
+                fb.update(player.rect, solids)
+                now_solid = fb.solid
+                if was_solid and not now_solid:
+                    # Block started falling — remove from solids so entities pass through
+                    if fb.rect in solids:
+                        solids.remove(fb.rect)
+                elif not was_solid and fb.state == "landed":
+                    # Block landed — add back as solid if not in abyss
+                    if fb.rect not in solids and fb.rect.top < LEVEL_PIXEL_H:
+                        solids.append(fb.rect)
+                # Hurt player if landed block hits them
+                if state == "play" and fb.state == "falling" and player.rect.colliderect(fb.rect):
+                    if player.take_damage() and player.hp <= 0:
+                        state = "dead"; death_timer = 150
+                        shake_timer = 45; flash_timer = 20
+                        death_reason = "Crushed by a falling block"
 
             # Guards update + collect pending fireballs
             for g in guards:
@@ -2571,6 +2712,12 @@ def main():
                     if on_screen or (-16 <= nx <= GAME_W+16 and -16 <= ny <= SCREEN_H+16):
                         _draw_arrowhead(wx, wy, nx, ny, (255, 200, 50))
 
+        for pp in pressure_plates:
+            pp.draw(screen, cam)
+
+        for fb in falling_blocks:
+            fb.draw(screen, cam)
+
         for d in daggers:
             sr = cam.apply(d)
             if dagger_img: screen.blit(dagger_img, sr)
@@ -2626,7 +2773,8 @@ def main():
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
-                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
+                     fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
+     pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
                     state = "play"; death_reason = ""; death_timer = 0; win_timer = 0
