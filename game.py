@@ -1054,6 +1054,8 @@ class Vlad:
         self._bt         = self._build_bt()
         self.particles   = []         # particle effects
         self.stun_timer  = 0          # frames remaining stunned by lightning
+        self.teleport_enabled   = False  # set by level flag "villain_teleport"
+        self.teleport_cooldown  = 0      # frames until next teleport allowed
 
     def _foot_tile(self):
         """Tile coordinates of the ground Vlad is standing on."""
@@ -1156,6 +1158,30 @@ class Vlad:
             self.vx = 0
             self.vy, self.on_ground = apply_physics(self.rect, 0, self.vy, tiles)
             return
+
+        # Teleport attack — blink away when player gets too close
+        if self.teleport_cooldown > 0:
+            self.teleport_cooldown -= 1
+        if self.teleport_enabled and self.teleport_cooldown == 0:
+            dx = abs(self.rect.centerx - player.rect.centerx)
+            dy = abs(self.rect.centery - player.rect.centery)
+            dist_tiles = math.hypot(dx, dy) / TILE
+            if dist_tiles < 4 and NAV_GRAPH:
+                pc = player.rect.centerx // TILE
+                pr = (player.rect.bottom - 1) // TILE
+                far_nodes = [
+                    node for node in NAV_GRAPH
+                    if math.hypot(node[0] - pc, node[1] - pr) > 8
+                ]
+                if far_nodes:
+                    dest_col, dest_row = random.choice(far_nodes)
+                    old_cx, old_cy = self.rect.centerx, self.rect.centery
+                    self.rect.centerx = dest_col * TILE + TILE // 2
+                    self.rect.bottom  = (dest_row + 1) * TILE
+                    self._emit_smoke_at(old_cx, old_cy, count=40)
+                    self._emit_smoke_at(self.rect.centerx, self.rect.centery, count=40)
+                    self.teleport_cooldown = 300   # 5 seconds
+                    self.path = []                 # cancel current path
 
         self.sees_player = has_line_of_sight(self.rect, player.rect)
 
@@ -2185,6 +2211,9 @@ def main():
         guard_img = None
     dagger_img = load_sprite(os.path.join(BASE, "items", "dagger.png"), 24, 40)
 
+    # per-level feature flags (mutated by _apply_level_visuals, read by reset)
+    flags = {"villain_teleport": False}
+
     # visual assets stored in a dict so _apply_level_visuals can mutate them
     # without needing nonlocal — the draw loop always reads from this dict
     visuals = {
@@ -2233,6 +2262,7 @@ def main():
         player     = Player(*pstart, player_img, crouch_img, walk_img)
         vlad_spawn = vstart or (LEVEL_COLS // 2 * TILE, TILE * 2)
         vlad       = Vlad(*vlad_spawn, vlad_img)
+        vlad.teleport_enabled = flags["villain_teleport"]
         skulls     = spawn_skulls()
         skull_grid = SpatialGrid()
         guards_list = []
@@ -2308,6 +2338,7 @@ def main():
         visuals["bg"]    = _make_bg(entry.get("background"))
         visuals["wall"]  = w if w else visuals["wall"]
         visuals["floor"] = f if f else visuals["floor"]
+        flags["villain_teleport"] = entry.get("villain_teleport", False)
 
     _apply_level_visuals()   # apply visuals for the initial level on startup
 

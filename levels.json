@@ -6,7 +6,8 @@
       "name": "Level 3 — The Courtyard",
       "background": "level_tiles/bg_night_wide.png",
       "wall": "level_tiles/wall_tile_outdoor2.png",
-      "floor": "level_tiles/floor_tile_outdoor2.png"
+      "floor": "level_tiles/floor_tile_outdoor2.png",
+      "villain_teleport": true
     }
   ]
 }
