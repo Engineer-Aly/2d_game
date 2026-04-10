@@ -893,11 +893,15 @@ class PressurePlate:
                     g.mode      = "dropping"
                     g._alert_cd = 0
 
-    def draw(self, surface, cam):
+    def draw(self, surface, cam, floor_img=None):
         sr = cam.apply(self.solid_rect)
-        # Draw as a floor tile with a glowing strip indicator
-        pygame.draw.rect(surface, (80, 60, 30), sr)
+        # Draw floor tile texture (or fallback colour)
+        if floor_img:
+            surface.blit(floor_img, sr.topleft)
+        else:
+            pygame.draw.rect(surface, (80, 60, 30), sr)
         self._tick += 1
+        # Overlay glowing strip indicator on top of the texture
         if not self.triggered:
             pulse = int(180 + 60 * math.sin(self._tick * 0.08))
             strip = cam.apply(self.rect)
@@ -948,7 +952,7 @@ class FallingBlock:
             if self.rect.top > LEVEL_PIXEL_H:
                 self.state = "landed"   # fell into abyss
 
-    def draw(self, surface, cam):
+    def draw(self, surface, cam, floor_img=None):
         if self.state == "landed" and self.rect.top > LEVEL_PIXEL_H:
             return
         sr = cam.apply(self.rect)
@@ -956,7 +960,11 @@ class FallingBlock:
         if self.state == "shaking":
             shake_x = int(3 * math.sin(self._tick * 1.2))
         r = pygame.Rect(sr.x + shake_x, sr.y, sr.width, sr.height)
-        pygame.draw.rect(surface, (90, 70, 50), r)
+        # Draw floor tile texture (or fallback colour)
+        if floor_img:
+            surface.blit(floor_img, r.topleft)
+        else:
+            pygame.draw.rect(surface, (90, 70, 50), r)
         pygame.draw.rect(surface, (140, 110, 70), r, 2)
         if self.state != "idle":
             crack = pygame.Surface((r.width, r.height), pygame.SRCALPHA)
@@ -2738,10 +2746,10 @@ def main():
                         _draw_arrowhead(wx, wy, nx, ny, (255, 200, 50))
 
         for pp in pressure_plates:
-            pp.draw(screen, cam)
+            pp.draw(screen, cam, visuals["floor"])
 
         for fb in falling_blocks:
-            fb.draw(screen, cam)
+            fb.draw(screen, cam, visuals["floor"])
 
         for d in daggers:
             sr = cam.apply(d)
