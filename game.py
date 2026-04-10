@@ -879,12 +879,19 @@ class PressurePlate:
     def update(self, player_rect, guards):
         if self.triggered:
             return
-        # Fire when player stands on this tile (feet touch the plate)
-        if player_rect.colliderect(self.rect):
+        # Player stands on this tile when their feet land on its top surface
+        feet_on_plate = (
+            player_rect.bottom >= self.solid_rect.top and
+            player_rect.bottom <= self.solid_rect.top + 6 and
+            player_rect.right  >  self.solid_rect.left and
+            player_rect.left   <  self.solid_rect.right
+        )
+        if feet_on_plate:
             self.triggered = True
             for g in guards:
-                if g.alive and g.mode == "ceiling":
-                    g.mode = "dropping"
+                if g.alive and g.mode in ("ceiling", "alert"):
+                    g.mode      = "dropping"
+                    g._alert_cd = 0
 
     def draw(self, surface, cam):
         sr = cam.apply(self.solid_rect)
@@ -1656,6 +1663,8 @@ class Guard:
 
     def __init__(self, x, y, img):
         self.rect        = pygame.Rect(x, y, self.W, self.H)
+        self.spawn_x     = x
+        self.spawn_y     = y
         self.vx          = 0.0
         self.vy          = 0.0
         self.img         = img
@@ -1663,6 +1672,7 @@ class Guard:
         self.fired       = False
         self.pending_fb  = None
         self.sees_player = False
+        self.respawn_timer = 0   # frames until respawn (0 = not waiting)
         # "ceiling" → walk upside-down on ceiling
         # "dropping" → free-fall toward floor
         # "floor"    → chase player along floor
@@ -2534,10 +2544,25 @@ def main():
 
             # Guards update + collect pending fireballs
             for g in guards:
+                if not g.alive:
+                    if g.respawn_timer > 0:
+                        g.respawn_timer -= 1
+                        if g.respawn_timer == 0:
+                            # Respawn back on ceiling
+                            g.rect.x    = g.spawn_x
+                            g.rect.y    = g.spawn_y
+                            g.vx        = 0.0
+                            g.vy        = 0.0
+                            g.alive     = True
+                            g.fired     = False
+                            g.mode      = "ceiling"
+                            g._alert_cd = 0
+                    continue
                 g.update(solids, player, vlad_rect=vlad.rect)
-                # Kill guard if it falls into a floor hole / abyss
-                if g.alive and g.rect.top > LEVEL_PIXEL_H + TILE:
-                    g.alive = False
+                # Guard fell into abyss — start 5-second respawn timer
+                if g.rect.top > LEVEL_PIXEL_H + TILE:
+                    g.alive         = False
+                    g.respawn_timer = 300   # 5 s at 60 fps
                 if g.pending_fb:
                     guard_fbs.append(g.pending_fb)
                     g.pending_fb = None
