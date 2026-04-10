@@ -1,12 +1,12 @@
 {
   "levels": [
+
     {
-      "file": "level.txt",
-      "name": "The Castle — Hunt Begins"
-    },
-    {
-      "file": "level_2.txt",
-      "name": "2nd Castle — Hunt continues"
+      "file": "levels/level_3.txt",
+      "name": "Level 3 \u2014 The Courtyard",
+      "background": "bg_night_wide.png",
+      "wall": "wall_tile_outdoor2.png",
+      "floor": "floor_tile_outdoor2.png"
     }
   ]
 }

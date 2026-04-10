@@ -71,10 +71,10 @@ def _load_level_index():
             if isinstance(e, str):
                 result.append({"file": os.path.join(_BASE_DIR, e), "name": e})
             else:
-                result.append({
-                    "file": os.path.join(_BASE_DIR, e["file"]),
-                    "name": e.get("name", e["file"]),
-                })
+                entry = dict(e)   # copy all fields (background, wall, floor, etc.)
+                entry["file"] = os.path.join(_BASE_DIR, e["file"])
+                entry.setdefault("name", e["file"])
+                result.append(entry)
         if result:
             return result
     # Fallback: default level
@@ -463,31 +463,53 @@ def collide_x(rect, vx, tiles):
         if rect.colliderect(t):
             if vx > 0: rect.right = t.left
             elif vx < 0: rect.left = t.right
+            break
 
-def collide_y(rect, vy, tiles):
+def collide_y_swept(rect, vy, tiles):
+    """Swept collision: build a rect covering the full path before+after,
+    find the closest tile crossed, resolve to its edge. No tunneling."""
     on_ground = False
+    if vy == 0:
+        return on_ground, vy
+
+    move = int(vy)
+    if move == 0:
+        return on_ground, vy
+
+    # Swept rect covers the full path this frame
+    if move > 0:   # falling — sweep downward
+        swept = pygame.Rect(rect.x, rect.bottom, rect.width, move)
+    else:          # rising  — sweep upward
+        swept = pygame.Rect(rect.x, rect.top + move, rect.width, -move)
+
+    # Find the closest tile the swept path crosses
+    best = None
     for t in tiles:
-        if rect.colliderect(t):
-            if vy > 0:
-                rect.bottom = t.top
-                on_ground = True
-            elif vy < 0:
-                rect.top = t.bottom
-            vy = 0
+        if swept.colliderect(t):
+            if best is None:
+                best = t
+            elif move > 0 and t.top < best.top:
+                best = t   # closest floor tile (smallest y = hit first)
+            elif move < 0 and t.bottom > best.bottom:
+                best = t   # closest ceiling tile (largest bottom = hit first)
+
+    if best is not None:
+        if move > 0:
+            rect.bottom = best.top
+            on_ground   = True
+        else:
+            rect.top = best.bottom
+        vy = 0
+    else:
+        rect.y += move
+
     return on_ground, vy
 
 def apply_physics(rect, vx, vy, tiles):
     vy = min(vy + GRAVITY, 20)
     rect.x += int(vx)
     collide_x(rect, vx, tiles)
-    steps  = max(1, int(abs(vy) // 8))
-    step_y = vy / steps
-    on_ground = False
-    for _ in range(steps):
-        rect.y += int(step_y)
-        on_ground, vy = collide_y(rect, vy, tiles)
-        if on_ground:
-            vy = 0
+    on_ground, vy = collide_y_swept(rect, vy, tiles)
     return vy, on_ground
 
 
@@ -513,6 +535,10 @@ class Player:
         self.invincible       = 0   # countdown iframes
         self.wall_sliding     = False
         self.wall_dir         = 0   # -1 = wall on left, 1 = wall on right
+        self.has_double_jump  = False
+        self.double_jump_used = False
+        self._jump_held       = False
+        self._jump_prev       = False
 
     def _can_stand(self):
         """Return True if there is enough vertical space to stand up."""
@@ -559,8 +585,9 @@ class Player:
             # wall jump — launch away from wall and upward
             self.vy           = JUMP_FORCE * 0.9
             self.vx           = -self.wall_dir * PLAYER_SPEED * 2
-            self.img_flip     = self.wall_dir > 0   # face away from wall
+            self.img_flip     = self.wall_dir > 0
             self.wall_sliding = False
+        self._jump_held = jump   # track for double jump edge detection
 
     def _touching_wall(self, tiles):
         """Return -1/1 if touching a wall tile that has another solid tile
@@ -591,6 +618,16 @@ class Player:
         if self.invincible > 0:
             self.invincible -= 1
         self.vy, self.on_ground = apply_physics(self.rect, self.vx, self.vy, tiles)
+        # reset double jump when landing
+        if self.on_ground:
+            self.double_jump_used = False
+        # double jump — fires on the rising edge of jump key
+        jump_pressed = self._jump_held and not self._jump_prev
+        if (jump_pressed and not self.on_ground and not self.wall_sliding
+                and self.has_double_jump and not self.double_jump_used):
+            self.vy               = JUMP_FORCE * 0.85
+            self.double_jump_used = True
+        self._jump_prev = self._jump_held
         # Wall slide: airborne + pressing into a wall → slow the fall
         if not self.on_ground and not self.crouching:
             self.wall_dir = self._touching_wall(tiles)
@@ -825,6 +862,55 @@ class SkullBall:
             pygame.draw.circle(tmp, ( 90,  85,  75), (cx, cy), R, 1)
             rotated = pygame.transform.rotate(tmp, -self.angle)
             surface.blit(rotated, rotated.get_rect(center=(sx, sy)))
+
+
+# ── MagicOrb (double-jump pickup) ────────────────────────────────────────────
+class MagicOrb:
+    R = 14
+
+    def __init__(self, x, y):
+        self.x         = float(x)
+        self.y         = float(y)
+        self.collected = False
+        self._tick     = random.randint(0, 62)
+
+    @property
+    def rect(self):
+        return pygame.Rect(int(self.x) - self.R, int(self.y) - self.R,
+                           self.R * 2, self.R * 2)
+
+    def draw(self, surface, cam):
+        if self.collected:
+            return
+        self._tick += 1
+        bob = math.sin(self._tick * 0.07) * 5          # gentle float
+        sx  = int(self.x) - cam.ox
+        sy  = int(self.y + bob) - cam.oy
+
+        if not (-self.R < sx < GAME_W + self.R and -self.R < sy < SCREEN_H + self.R):
+            return
+
+        # outer glow rings
+        for radius, alpha in ((36, 25), (26, 55), (20, 100)):
+            g = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(g, (110, 50, 255, alpha), (radius, radius), radius)
+            surface.blit(g, (sx - radius, sy - radius))
+
+        # pulsing core
+        pulse = self.R + int(3 * math.sin(self._tick * 0.13))
+        pygame.draw.circle(surface, (170,  70, 255), (sx, sy), pulse)
+        pygame.draw.circle(surface, (210, 150, 255), (sx, sy), max(1, pulse - 4))
+        pygame.draw.circle(surface, (250, 230, 255), (sx, sy), max(1, pulse - 8))
+
+        # orbiting sparkles
+        for i in range(4):
+            a  = self._tick * 0.06 + i * math.pi / 2
+            px = sx + int(math.cos(a) * 22)
+            py = sy + int(math.sin(a) * 22)
+            pygame.draw.circle(surface, (200, 100, 255), (px, py), 3)
+
+        # label
+        pass   # no text — visual speaks for itself
 
 
 # ── Vlad ──────────────────────────────────────────────────────────────────────
@@ -1669,6 +1755,7 @@ def make_fallback(w, h, colour):
 # ── Level build ───────────────────────────────────────────────────────────────
 def build_level():
     solids = []; daggers = []; wall_rects = []; floor_rects = []
+    magic_orbs    = []
     player_start  = (TILE + 8, (LEVEL_ROWS - 2) * TILE - Player.H)
     vlad_start    = None
     guard_starts  = []
@@ -1687,12 +1774,14 @@ def build_level():
                 guard_starts.append((x + 4, (row + 1) * TILE))   # rect.top = bottom of tile
             elif ch == 'D':
                 daggers.append(pygame.Rect(x + 12, y + 8, 24, 40))
+            elif ch == 'J':
+                magic_orbs.append(MagicOrb(x + TILE // 2, y + TILE // 2))
             elif ch == 'V':
                 vlad_start = (x + 4, (row + 1) * TILE - Vlad.H)
             elif ch == 'P':
                 player_start = (col * TILE + 4, (row + 1) * TILE - Player.H)
 
-    return solids, daggers, wall_rects, floor_rects, player_start, vlad_start, guard_starts
+    return solids, daggers, magic_orbs, wall_rects, floor_rects, player_start, vlad_start, guard_starts
 
 
 # ── Skull spawn ───────────────────────────────────────────────────────────────
@@ -1736,6 +1825,7 @@ def draw_hud(surface, player, total_daggers, vlad, font, muted=False, show_path=
     labels = {"IDLE": "roaming", "FLEE": f"FLEEING! [{vlad.ai.strategy()}]"}
     state_txt = labels.get(vlad.state, vlad.state)
     bolt_txt  = f"Bolt:{player.lightning}" if player.lightning > 0 else "Bolt:OUT"
+    djump_txt = "  [2xJump]" if player.has_double_jump else ""
     mute_txt  = "  [MUTED]" if muted else ""
     if player.daggers >= total_daggers:
         path_txt = "  [Q: tracking]" if show_path else "  [Q: track Vlad]"
@@ -1743,7 +1833,7 @@ def draw_hud(surface, player, total_daggers, vlad, font, muted=False, show_path=
         path_txt = ""
     txt = font.render(
         f"Daggers: {player.daggers}/{total_daggers}    Vlad: {state_txt}  "
-        f"Vlad-FB:{vlad.ammo}   {bolt_txt}  [E]{mute_txt}{path_txt}",
+        f"Vlad-FB:{vlad.ammo}   {bolt_txt}  [E]{djump_txt}{mute_txt}{path_txt}",
         True, GOLD)
     surface.blit(txt, (14, 30))
 
@@ -1965,10 +2055,41 @@ def main():
     else:
         guard_img = None
     dagger_img = load_sprite(os.path.join(BASE, "dagger.png"),     24, 40)
-    wall_img   = load_sprite(os.path.join(BASE, "wall_tile.png"),  TILE, TILE)
-    floor_img  = load_sprite(os.path.join(BASE, "floor_tile.png"), TILE, TILE)
-    if not wall_img:  wall_img  = make_fallback(TILE, TILE, BROWN)
-    if not floor_img: floor_img = make_fallback(TILE, TILE, (60, 40, 20))
+
+    # visual assets stored in a dict so _apply_level_visuals can mutate them
+    # without needing nonlocal — the draw loop always reads from this dict
+    visuals = {
+        "bg":    None,
+        "wall":  load_sprite(os.path.join(BASE, "wall_tile.png"),  TILE, TILE)
+                 or make_fallback(TILE, TILE, BROWN),
+        "floor": load_sprite(os.path.join(BASE, "floor_tile.png"), TILE, TILE)
+                 or make_fallback(TILE, TILE, (60, 40, 20)),
+    }
+
+    def _make_bg(bg_file=None):
+        """Return a background Surface for GAME_W x SCREEN_H.
+        If bg_file given, load + scale the image. Otherwise use gradient."""
+        if bg_file:
+            path = os.path.join(BASE, bg_file)
+            if os.path.exists(path):
+                try:
+                    raw = pygame.image.load(path)
+                    # convert_alpha handles both RGB and RGBA PNGs
+                    img = raw.convert_alpha()
+                    # flatten alpha onto black background so blit looks correct
+                    flat = pygame.Surface((raw.get_width(), raw.get_height()))
+                    flat.blit(img, (0, 0))
+                    return pygame.transform.smoothscale(flat, (GAME_W, SCREEN_H))
+                except Exception as e:
+                    print(f"[BG] failed to load {path}: {e}")
+            else:
+                print(f"[BG] file not found: {path}")
+        surf = pygame.Surface((GAME_W, SCREEN_H))
+        for y in range(SCREEN_H):
+            t = y / SCREEN_H
+            pygame.draw.line(surf, (int(10+20*t), int(5+10*t), int(15+20*t)),
+                             (0, y), (GAME_W, y))
+        return surf
 
     font       = pygame.font.SysFont("serif", 22)
     font_big   = pygame.font.SysFont("serif", 52, bold=True)
@@ -1976,22 +2097,24 @@ def main():
     font_small = pygame.font.SysFont("monospace", 13)
 
     def reset():
-        solids, daggers, wall_rects, floor_rects, pstart, vstart, gstarts = build_level()
+        nonlocal vlad_spawn
+        solids, daggers, magic_orbs, wall_rects, floor_rects, pstart, vstart, gstarts = build_level()
         player     = Player(*pstart, player_img, crouch_img, walk_img)
-        vlad       = Vlad(*(vstart or (LEVEL_COLS // 2 * TILE, TILE * 2)), vlad_img)
+        vlad_spawn = vstart or (LEVEL_COLS // 2 * TILE, TILE * 2)
+        vlad       = Vlad(*vlad_spawn, vlad_img)
         skulls     = spawn_skulls()
         skull_grid = SpatialGrid()
-        # Spawn guards from G tiles in level.txt
         guards_list = []
         for i, (gx, gy) in enumerate(gstarts):
             g = Guard(gx, gy, guard_img)
             if i % 2 == 1:
-                g.move_dir = -1   # alternate facing direction
+                g.move_dir = -1
             guards_list.append(g)
-        return (player, vlad, solids, daggers, wall_rects, floor_rects,
+        return (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                 [], guards_list, [], skulls, skull_grid, [])
 
-    (player, vlad, solids, daggers, wall_rects, floor_rects,
+    vlad_spawn = (LEVEL_COLS // 2 * TILE, TILE * 2)   # overwritten by reset()
+    (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
     total_daggers = len(daggers)
     player._total_daggers = total_daggers
@@ -2041,10 +2164,20 @@ def main():
     _intro_pause  = 0     # pause frames between lines
     _intro_done   = False # all text shown
 
-    bg = pygame.Surface((GAME_W, SCREEN_H))
-    for y in range(SCREEN_H):
-        t = y / SCREEN_H
-        pygame.draw.line(bg, (int(10+20*t), int(5+10*t), int(15+20*t)), (0, y), (GAME_W, y))
+    visuals["bg"] = _make_bg()   # temporary — overwritten by _apply_level_visuals() below
+
+    def _apply_level_visuals():
+        """Swap visuals dict based on current level_index entry."""
+        entry      = level_index[level_idx]
+        wall_file  = entry.get("wall")
+        floor_file = entry.get("floor")
+        w = load_sprite(os.path.join(BASE, wall_file),  TILE, TILE) if wall_file  else None
+        f = load_sprite(os.path.join(BASE, floor_file), TILE, TILE) if floor_file else None
+        visuals["bg"]    = _make_bg(entry.get("background"))
+        visuals["wall"]  = w if w else visuals["wall"]
+        visuals["floor"] = f if f else visuals["floor"]
+
+    _apply_level_visuals()   # apply visuals for the initial level on startup
 
     while True:
         clock.tick(FPS)
@@ -2066,7 +2199,7 @@ def main():
                         _intro_char  = len(INTRO_LINES[-1][0])
                         _intro_done  = True
                 if event.key == pygame.K_r:
-                    (player, vlad, solids, daggers, wall_rects, floor_rects,
+                    (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
@@ -2077,7 +2210,8 @@ def main():
                 if event.key == pygame.K_RIGHTBRACKET and len(level_index) > 1:
                     level_idx = (level_idx + 1) % len(level_index)
                     switch_level(level_index[level_idx]["file"])
-                    (player, vlad, solids, daggers, wall_rects, floor_rects,
+                    _apply_level_visuals()
+                    (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
@@ -2099,7 +2233,8 @@ def main():
                 if event.key == pygame.K_LEFTBRACKET and len(level_index) > 1:
                     level_idx = (level_idx - 1) % len(level_index)
                     switch_level(level_index[level_idx]["file"])
-                    (player, vlad, solids, daggers, wall_rects, floor_rects,
+                    _apply_level_visuals()
+                    (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
@@ -2312,16 +2447,26 @@ def main():
                 if player.rect.colliderect(d):
                     daggers.remove(d); player.daggers += 1; player.lightning += 1
 
+            for orb in magic_orbs:
+                if not orb.collected and player.rect.colliderect(orb.rect):
+                    orb.collected        = True
+                    player.has_double_jump = True
+
             if player.rect.colliderect(vlad.rect):
                 if player.daggers >= total_daggers:
                     state = "win"; win_timer = 180
                 else:
                     touching_early = True
 
-            if state == "play" and player.rect.bottom > LEVEL_PIXEL_H + TILE:
+            if state == "play" and player.rect.bottom > LEVEL_PIXEL_H:
                 state = "dead"; death_timer = 60
                 shake_timer = 30; flash_timer = 15
                 death_reason = "Fell into the abyss"
+
+            # Respawn Vlad if he falls off the level
+            if vlad.rect.top > LEVEL_PIXEL_H:
+                vlad.rect.x, vlad.rect.y = vlad_spawn
+                vlad.vx = vlad.vy = 0
 
             # Path-to-Vlad: recompute every 20 frames
             if show_path and player.daggers >= total_daggers:
@@ -2343,9 +2488,9 @@ def main():
                 _path_to_vlad = []
 
         # ── Draw ─────────────────────────────────────────────────────────────
-        screen.blit(bg, (0, 0))
-        for r in wall_rects:  screen.blit(wall_img,  cam.apply(r))
-        for r in floor_rects: screen.blit(floor_img, cam.apply(r))
+        screen.blit(visuals["bg"],    (0, 0))
+        for r in wall_rects:  screen.blit(visuals["wall"],  cam.apply(r))
+        for r in floor_rects: screen.blit(visuals["floor"], cam.apply(r))
 
         # Path-to-Vlad overlay
         if _path_to_vlad and len(_path_to_vlad) > 1:
@@ -2433,6 +2578,9 @@ def main():
                 pygame.draw.polygon(screen, (200, 200, 255),
                     [(sr.centerx, sr.top), (sr.centerx-5, sr.bottom), (sr.centerx+5, sr.bottom)])
 
+        for orb in magic_orbs:
+            orb.draw(screen, cam)
+
         for fb in fireballs:
             fb.draw(screen, cam)
 
@@ -2476,7 +2624,8 @@ def main():
                 else:
                     level_idx = next_idx
                     switch_level(level_index[level_idx]["file"])
-                    (player, vlad, solids, daggers, wall_rects, floor_rects,
+                    _apply_level_visuals()
+                    (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
@@ -2522,8 +2671,11 @@ def main():
 
 
 # ── Bootstrap: load initial level ─────────────────────────────────────────────
-_initial = (sys.argv[1] if len(sys.argv) > 1
-            else os.path.join(_BASE_DIR, "level.txt"))
+if len(sys.argv) > 1:
+    _initial = sys.argv[1]
+else:
+    _index = _load_level_index()
+    _initial = _index[0]["file"] if _index else os.path.join(_BASE_DIR, "level.txt")
 switch_level(_initial)
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+frame,time,x,y,tile_x,tile_y,vx,vy,state,on_ground,ai_strategy,sees_player,ammo,stun,swap_used
+1,1775821967.012,2592,-64,54,-2,0,0,IDLE,1,FAR,0,3,0,0
