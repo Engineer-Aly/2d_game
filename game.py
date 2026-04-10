@@ -2162,16 +2162,16 @@ def main():
     bolt_particles = []  # world-space spark particles from lightning hits
 
     BASE = os.path.join(os.path.dirname(__file__), "sprites")
-    player_img = load_sprite(os.path.join(BASE, "assassin.png"), Player.W, Player.H)
+    player_img = load_sprite(os.path.join(BASE, "assassin", "assassin.png"), Player.W, Player.H)
     if player_img:
         player_img = pygame.transform.flip(player_img, True, False)
     skull_sz   = SkullBall.R * 2 + 4   # 32 px — a touch larger than radius for nice look
-    skull_img  = load_sprite(os.path.join(BASE, "skull.png"), skull_sz, skull_sz)
+    skull_img  = load_sprite(os.path.join(BASE, "level_tiles", "skull.png"), skull_sz, skull_sz)
     if skull_img:
         SkullBall._img = skull_img
-    walk_img   = load_sprite(os.path.join(BASE, "walking.png"), Player.W, Player.H)
-    crouch_img = load_sprite(os.path.join(BASE, "crouch.png"), Player.W, Player.CRAWL_H)
-    vlad_img   = load_sprite(os.path.join(BASE, "vlad.png"),       Vlad.W, int(Vlad.H * 1.5))
+    walk_img   = load_sprite(os.path.join(BASE, "assassin", "walking.png"), Player.W, Player.H)
+    crouch_img = load_sprite(os.path.join(BASE, "assassin", "crouch.png"), Player.W, Player.CRAWL_H)
+    vlad_img   = load_sprite(os.path.join(BASE, "vlad", "vlad.png"),       Vlad.W, int(Vlad.H * 1.5))
     if vlad_img:
         vlad_img = pygame.transform.flip(vlad_img, True, False)
     # Guard: same sprite as Vlad, scaled smaller, tinted near-black
@@ -2183,15 +2183,15 @@ def main():
         guard_img = _gb
     else:
         guard_img = None
-    dagger_img = load_sprite(os.path.join(BASE, "dagger.png"),     24, 40)
+    dagger_img = load_sprite(os.path.join(BASE, "items", "dagger.png"), 24, 40)
 
     # visual assets stored in a dict so _apply_level_visuals can mutate them
     # without needing nonlocal — the draw loop always reads from this dict
     visuals = {
         "bg":    None,
-        "wall":  load_sprite(os.path.join(BASE, "wall_tile.png"),  TILE, TILE)
+        "wall":  load_sprite(os.path.join(BASE, "level_tiles", "wall_tile.png"),  TILE, TILE)
                  or make_fallback(TILE, TILE, BROWN),
-        "floor": load_sprite(os.path.join(BASE, "floor_tile.png"), TILE, TILE)
+        "floor": load_sprite(os.path.join(BASE, "level_tiles", "floor_tile.png"), TILE, TILE)
                  or make_fallback(TILE, TILE, (60, 40, 20)),
     }
 
