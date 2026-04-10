@@ -2,18 +2,14 @@
   "levels": [
 
     {
-      "file": "levels/level_4.txt",
-      "name": "Level 4 \u2014 The DIVE",
-      "background": "level_tiles/bg_night_wide.png",
-      "wall": "level_tiles/wall_tile_outdoor.png",
-      "floor": "level_tiles/floor_tile_outdoor.png",
-      "villain_image": "char/char_TheBrassSentinel.png",
-      "villain_name": "The Brass Sentinel",
+      "file": "levels/level.txt",
+      "name": "The Castle \u2014 Hunt Begins",
+      "villain_image": "char/char_TheMaskedVizier.png",
+      "villain_name": "Masked Vizier",
       "villain_swap": false,
-      "villain_teleport": false,
-      "villain_ammo": 3,
       "villain_flip": false,
-      "guard_image": "animal/animal_bat.png",
+      "villain_ammo": 6,
+      "guard_image": "animal/animal_dog.png",
       "guard_ammo": 0,
       "guard_flip": false
     }

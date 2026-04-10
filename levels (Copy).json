@@ -1,16 +1,47 @@
 {
   "levels": [
     {
+      "file": "levels/level_4.txt",
+      "name": "Level 1 \u2014 The DIVE",
+      "background": "level_tiles/bg_night_wide.png",
+      "wall": "level_tiles/wall_tile_outdoor.png",
+      "floor": "level_tiles/floor_tile_outdoor.png",
+      "villain_image": "char/char_TheBrassSentinel.png",
+      "villain_name": "The Brass Sentinel",
+      "villain_swap": false,
+      "villain_teleport": false,
+      "villain_ammo": 3,
+      "villain_flip": false,
+      "guard_image": "animal/animal_bat.png",
+      "guard_ammo": 0,
+      "guard_flip": false
+    }
+    ,
+    {
       "file": "levels/level.txt",
-      "name": "The Castle \u2014 Hunt Begins"
+      "name": "The Castle \u2014 Hunt Begins",
+      "villain_image": "char/char_TheMaskedVizier.png",
+      "villain_name": "Masked Vizier",
+      "villain_ammo": 6,
+      "guard_image": "animal/animal_dog.png",
+      "guard_ammo": 0,
+      "guard_flip": false
     },
     {
       "file": "levels/level_2.txt",
-      "name": "2nd Castle \u2014 Hunt continues"
+      "name": "2nd Castle \u2014 Hunt continues",
+      "villain_image": "char/char_ShadowGhouls.png",
+      "villain_name": "Shadow Ghoul",
+      "villain_ammo": 6,
+      "villain_teleport": true,
+      "floor": "level_tiles/floor_tile_outdoor2.png",
+      "guard_image": "animal/animal_tiger.png",
+      "guard_ammo": 0,
+      "guard_flip": false
     },
     {
       "file": "levels/level_3.txt",
-      "name": "Level 3 \u2014 The Courtyard",
+      "name": "Level 4 \u2014 The Courtyard",
       "background": "level_tiles/bg_night_wide.png",
       "wall": "level_tiles/wall_tile_outdoor2.png",
       "floor": "level_tiles/floor_tile_outdoor2.png",
@@ -19,10 +50,13 @@
     ,
     {
       "file": "levels/level_4.txt",
-      "name": "Level 4 \u2014 The DIVE",
+      "name": "Level 5 \u2014 The DIVE",
       "background": "level_tiles/bg_night_wide.png",
       "wall": "level_tiles/wall_tile_outdoor.png",
-      "floor": "level_tiles/floor_tile_outdoor.png"
+      "floor": "level_tiles/floor_tile_outdoor.png",
+      "villain_swap": false,
+      "villain_teleport": false
+
     }
   ]
 }
