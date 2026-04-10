@@ -1698,7 +1698,7 @@ _GUARD_SPD_FLOOR = 2.8
 class Guard:
     W, H = 24, 44   # smaller than Vlad
 
-    def __init__(self, x, y, img):
+    def __init__(self, x, y, img, mode="ceiling"):
         self.rect        = pygame.Rect(x, y, self.W, self.H)
         self.spawn_x     = x
         self.spawn_y     = y
@@ -1714,7 +1714,8 @@ class Guard:
         # "ceiling" → walk upside-down on ceiling
         # "dropping" → free-fall toward floor
         # "floor"    → chase player along floor
-        self.mode        = "ceiling"
+        self.mode        = mode
+        self._init_mode  = mode  # used to restore mode on respawn
         self.on_surface  = True
         self.move_dir    = random.choice([-1, 1])
         self._roam_cd    = random.randint(60, 180)
@@ -1918,7 +1919,10 @@ def build_level():
             elif ch == 'G':
                 # Guard ceiling tile — solid like W, but records a guard spawn point
                 solids.append(r); wall_rects.append(r)
-                guard_starts.append((x + 4, (row + 1) * TILE))   # rect.top = bottom of tile
+                guard_starts.append((x + 4, (row + 1) * TILE, "ceiling"))
+            elif ch == 'g':
+                # Floor guard — not solid, spawns standing on the tile below
+                guard_starts.append((x + 4, (row + 1) * TILE - Guard.H, "floor"))
             elif ch == 'D':
                 daggers.append(pygame.Rect(x + 12, y + 8, 24, 40))
             elif ch == 'J':
@@ -2325,8 +2329,8 @@ def main():
         skulls     = spawn_skulls()
         skull_grid = SpatialGrid()
         guards_list = []
-        for i, (gx, gy) in enumerate(gstarts):
-            g = Guard(gx, gy, flags["guard_img"])
+        for i, (gx, gy, gmode) in enumerate(gstarts):
+            g = Guard(gx, gy, flags["guard_img"], mode=gmode)
             g.ammo       = flags["guard_ammo"]
             g._init_ammo = flags["guard_ammo"]
             if i % 2 == 1:
@@ -2640,7 +2644,7 @@ def main():
                             g.vy        = 0.0
                             g.alive     = True
                             g.ammo      = g._init_ammo
-                            g.mode      = "ceiling"
+                            g.mode      = g._init_mode
                             g._alert_cd = 0
                     continue
                 g.update(solids, player, vlad_rect=vlad.rect)
