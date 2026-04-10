@@ -1055,6 +1055,10 @@ class Vlad:
         self._bt         = self._build_bt()
         self.particles   = []         # particle effects
         self.stun_timer  = 0          # frames remaining stunned by lightning
+        self.hp          = 1          # current health (set from level config)
+        self.max_hp      = 1          # max health (set from level config)
+        self.hit_flash   = 0          # frames of red flash on damage
+        self.hp_bar_timer = 0         # frames until health bar hides (reset on hit)
         self.teleport_enabled   = False  # set by level flag "villain_teleport"
         self.teleport_cooldown  = 0      # frames until next teleport allowed
         self.villain_name       = "Vlad" # display name — set from level config
@@ -1263,7 +1267,8 @@ class Vlad:
                 for g in guards:
                     g.directive = self.directive
 
-        if self.flash_timer > 0: self.flash_timer -= 1
+        if self.flash_timer > 0:  self.flash_timer  -= 1
+        if self.hp_bar_timer > 0: self.hp_bar_timer -= 1
         if self.fire_flash        > 0: self.fire_flash        -= 1
         if self.swap_reveal_timer > 0: self.swap_reveal_timer -= 1
 
@@ -1403,6 +1408,24 @@ class Vlad:
                 p.draw(surface, cam)
                 alive.append(p)
         self.particles = alive
+
+        # Health bar — only shown when max_hp > 1 and recently hit
+        if self.max_hp > 1 and self.hp_bar_timer > 0:
+            bar_w  = max(r.width, 40)
+            bar_h  = 6
+            bar_x  = r.centerx - bar_w // 2
+            bar_y  = r.top - 24
+            fill_w = int(bar_w * max(0, self.hp) / self.max_hp)
+            pygame.draw.rect(surface, (60, 10, 10),  (bar_x, bar_y, bar_w, bar_h))
+            pygame.draw.rect(surface, (220, 40, 40), (bar_x, bar_y, fill_w, bar_h))
+            pygame.draw.rect(surface, (255, 180, 60), (bar_x, bar_y, bar_w, bar_h), 1)
+
+        # Hit flash — red tint on damage
+        if self.hit_flash > 0:
+            self.hit_flash -= 1
+            tint = pygame.Surface((r.width, r.height), pygame.SRCALPHA)
+            tint.fill((255, 50, 50, 160))
+            surface.blit(tint, r.topleft)
 
         if self.stun_timer > 0:
             if self.stun_timer % 8 < 4:   # flickering blue tint
@@ -2237,6 +2260,7 @@ def main():
         "villain_name":     "Vlad",
         "villain_img":      _def_vimg,
         "guard_img":        _def_gimg,
+        "villain_hp":       1,
         "villain_ammo":     3,
         "villain_flip":     True,
         "guard_ammo":       1,
@@ -2291,6 +2315,7 @@ def main():
         flags["villain_teleport"] = entry.get("villain_teleport", False)
         flags["villain_swap"]     = entry.get("villain_swap", True)
         flags["villain_name"]     = entry.get("villain_name", "Vlad")
+        flags["villain_hp"]       = entry.get("villain_hp", 1)
         flags["villain_ammo"]     = entry.get("villain_ammo", 3)
         flags["villain_flip"]     = entry.get("villain_flip", True)
         flags["guard_ammo"]       = entry.get("guard_ammo", 1)
@@ -2325,6 +2350,8 @@ def main():
         vlad.swap_enabled     = flags["villain_swap"]
         vlad.villain_name     = flags["villain_name"]
         vlad.ai.villain_name  = flags["villain_name"]
+        vlad.hp               = flags["villain_hp"]
+        vlad.max_hp           = flags["villain_hp"]
         vlad.ammo             = flags["villain_ammo"]
         skulls     = spawn_skulls()
         skull_grid = SpatialGrid()
@@ -2709,7 +2736,13 @@ def main():
 
             if player.rect.colliderect(vlad.rect):
                 if player.daggers >= total_daggers:
-                    state = "win"; win_timer = 180
+                    if vlad.stun_timer == 0 and vlad.hit_flash == 0:
+                        vlad.hp -= 1
+                        vlad.hit_flash   = 40
+                        vlad.stun_timer  = STUN_DURATION
+                        vlad.hp_bar_timer = 360
+                    if vlad.hp <= 0:
+                        state = "win"; win_timer = 180
                 else:
                     touching_early = True
 
