@@ -1228,7 +1228,7 @@ class Vlad:
                     if g.alive and g.mode == "ceiling":
                         g.mode = "dropping"
                         g.vy   = 0.5
-                        if not g.fired:
+                        if g.ammo > 0:
                             g._fire(player)
                 self.fire_flash = 40
                 # Red burst — deploying guards
@@ -1706,7 +1706,8 @@ class Guard:
         self.vy          = 0.0
         self.img         = img
         self.alive       = True
-        self.fired       = False
+        self.ammo        = 1    # fireballs remaining (set from level config)
+        self._init_ammo  = 1    # used to restore ammo on respawn
         self.pending_fb  = None
         self.sees_player = False
         self.respawn_timer = 0   # frames until respawn (0 = not waiting)
@@ -1766,11 +1767,11 @@ class Guard:
         self.vy, self.on_surface = apply_physics(
             self.rect, self.vx, self.vy, tiles)
         # Fire when level with the player (within 1.5 tiles vertically)
-        if not self.fired and abs(self.rect.centery - player.rect.centery) < TILE * 1.5:
+        if self.ammo > 0 and abs(self.rect.centery - player.rect.centery) < TILE * 1.5:
             self._fire(player)
         if self.on_surface:
             # Fire on landing if still haven't (missed the level crossing)
-            if not self.fired:
+            if self.ammo > 0:
                 self._fire(player)
             self.mode = "floor"
             self.vx   = 0.0
@@ -1783,7 +1784,7 @@ class Guard:
             self.rect, self.vx, self.vy, tiles)
 
     def _fire(self, player):
-        self.fired = True
+        self.ammo -= 1
         direction  = 1 if player.rect.centerx > self.rect.centerx else -1
         self.pending_fb = GuardFireball(
             self.rect.centerx, self.rect.centery, direction)
@@ -2203,11 +2204,12 @@ def main():
     crouch_img = load_sprite(os.path.join(BASE, "assassin", "crouch.png"), Player.W, Player.CRAWL_H)
     dagger_img = load_sprite(os.path.join(BASE, "items", "dagger.png"), 24, 40)
 
-    def _load_villain_imgs(rel_path):
-        """Load villain sprite + guard tint from a sprites-relative path."""
+    def _load_villain_imgs(rel_path, flip=True):
+        """Load villain sprite + guard tint. flip=True if sprite naturally faces right."""
         vimg = load_sprite(os.path.join(BASE, rel_path), Vlad.W, int(Vlad.H * 1.5))
         if vimg:
-            vimg = pygame.transform.flip(vimg, True, False)
+            if flip:
+                vimg = pygame.transform.flip(vimg, True, False)
             _gb  = pygame.transform.smoothscale(vimg, (Guard.W, Guard.H))
             _gt  = pygame.Surface(_gb.get_size(), pygame.SRCALPHA)
             _gt.fill((170, 170, 175, 255))
@@ -2215,10 +2217,10 @@ def main():
             return vimg, _gb
         return None, None
 
-    def _load_guard_img(rel_path):
-        """Load a dedicated guard sprite (no dark tint applied)."""
+    def _load_guard_img(rel_path, flip=True):
+        """Load a dedicated guard sprite. flip=True if sprite naturally faces right."""
         gimg = load_sprite(os.path.join(BASE, rel_path), Guard.W, Guard.H)
-        if gimg:
+        if gimg and flip:
             gimg = pygame.transform.flip(gimg, True, False)
         return gimg
 
@@ -2231,6 +2233,10 @@ def main():
         "villain_name":     "Vlad",
         "villain_img":      _def_vimg,
         "guard_img":        _def_gimg,
+        "villain_ammo":     3,
+        "villain_flip":     True,
+        "guard_ammo":       1,
+        "guard_flip":       True,
     }
 
     # visual assets stored in a dict so _apply_level_visuals can mutate them
@@ -2281,13 +2287,18 @@ def main():
         flags["villain_teleport"] = entry.get("villain_teleport", False)
         flags["villain_swap"]     = entry.get("villain_swap", True)
         flags["villain_name"]     = entry.get("villain_name", "Vlad")
-        vimg, gimg = _load_villain_imgs(entry.get("villain_image", "char/vlad.png"))
+        flags["villain_ammo"]     = entry.get("villain_ammo", 3)
+        flags["villain_flip"]     = entry.get("villain_flip", True)
+        flags["guard_ammo"]       = entry.get("guard_ammo", 1)
+        flags["guard_flip"]       = entry.get("guard_flip", True)
+        vimg, gimg = _load_villain_imgs(entry.get("villain_image", "char/vlad.png"),
+                                        flip=flags["villain_flip"])
         if vimg:
             flags["villain_img"] = vimg
             flags["guard_img"]   = gimg
         guard_path = entry.get("guard_image")
         if guard_path:
-            g = _load_guard_img(guard_path)
+            g = _load_guard_img(guard_path, flip=flags["guard_flip"])
             if g:
                 flags["guard_img"] = g
 
@@ -2310,11 +2321,14 @@ def main():
         vlad.swap_enabled     = flags["villain_swap"]
         vlad.villain_name     = flags["villain_name"]
         vlad.ai.villain_name  = flags["villain_name"]
+        vlad.ammo             = flags["villain_ammo"]
         skulls     = spawn_skulls()
         skull_grid = SpatialGrid()
         guards_list = []
         for i, (gx, gy) in enumerate(gstarts):
             g = Guard(gx, gy, flags["guard_img"])
+            g.ammo       = flags["guard_ammo"]
+            g._init_ammo = flags["guard_ammo"]
             if i % 2 == 1:
                 g.move_dir = -1
             guards_list.append(g)
@@ -2625,7 +2639,7 @@ def main():
                             g.vx        = 0.0
                             g.vy        = 0.0
                             g.alive     = True
-                            g.fired     = False
+                            g.ammo      = g._init_ammo
                             g.mode      = "ceiling"
                             g._alert_cd = 0
                     continue

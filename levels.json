@@ -11,7 +11,11 @@
       "villain_name": "The Brass Sentinel",
       "villain_swap": false,
       "villain_teleport": false,
-      "guard_image": "char/char_ShadowGhouls.png"
+      "villain_ammo": 3,
+      "villain_flip": false,
+      "guard_image": "animal/animal_bat.png",
+      "guard_ammo": 0,
+      "guard_flip": false
     }
   ]
 }

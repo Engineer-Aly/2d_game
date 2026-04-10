@@ -1,0 +1,38 @@
+# Dungeon map — edit Freely!
+# Each character = one 48x48 tile
+# W = stone wall   . = empty air
+# F = Floor tile (solid, but looks diFFerent)
+# D = silver dagger (collectible)
+# V = Vlad the Impaler (goal — reach him aFter all daggers)
+# P = player start (only First P is used)
+# G = guard start — place on the TOP ROW (ceiling) only
+#     guards hang upside-down From G tiles and walk along the ceiling
+#
+# Jump height ≈ 3.5 tiles, so keep vertical gaps <= 3 tiles
+# Horizontal platForm gaps can be any width you can run-jump across
+#
+.........................W
+.........................F...................................................................W
+WWWWBBBBBBBBBBBBBBBBBBBWWF...................................................................F
+W........................W.....................................WWFFFF........................F
+W......D...D.......D.....W...........................................FFFFFF..........FFFW....F
+W................................................................................FFFFFFFF....F
+W.P...............................................V...WW.......................FFFFFFFFFF....F
+FFFFFGFFFGFFFFFGFFFFGFFFFGFFFFGFFFGFFFFFGFFFGFFFGFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF....F
+W.....................................................FF.....................................F
+W.....................................................FF.....................................F
+W....................WWWWWWWWWWWWWWWWWW...............FF.....................................F
+W......WWWWWWTWWWWW...................................FF.....................................F
+W.......................................WWWWWW........FF.....................................F
+W......................WTWWWWWWW...................WWWWW.....................................F
+WFFFGFTFFFFW..........FWW.........WWWWW...............FF.....................................F
+W....................FFWW.............WWWWWWWWWW.............................................F
+W.................FFFFFWW.........................FFFFWWWWWWWWWGWWWWWWWWWWWWWWWWWWWWWWWWWFFFFF
+W.........FFFGFFGFFFFFFWW.............................WW...............................FF
+W......................WW..................FFFFGFFFFFFWW...............................FF 
+W......................WW.........FFFFFF...............................................FF
+W...............GWWWWWWWWWWWWWWWGWWWWWWWWWWWWWWWWWGWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWFFFFFF
+W......................................................................................FF
+W......................................................................................FF  
+W......................................................................................FF
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFTFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
