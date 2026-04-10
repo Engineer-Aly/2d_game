@@ -60,7 +60,7 @@ def _load_level(path):
 _BASE_DIR = os.path.dirname(__file__) or "."
 
 def _load_level_index():
-    """Load levels.json and return list of {file, name} dicts."""
+    """Load levels.json and return list of {file, name, ...settings} dicts."""
     index_path = os.path.join(_BASE_DIR, "levels.json")
     if os.path.exists(index_path):
         with open(index_path) as f:
@@ -71,7 +71,7 @@ def _load_level_index():
             if isinstance(e, str):
                 result.append({"file": os.path.join(_BASE_DIR, e), "name": e})
             else:
-                entry = dict(e)   # copy all fields (background, wall, floor, etc.)
+                entry = dict(e)   # copy all fields (background, wall, floor, villain, etc.)
                 entry["file"] = os.path.join(_BASE_DIR, e["file"])
                 entry.setdefault("name", e["file"])
                 result.append(entry)
@@ -340,6 +340,7 @@ class VladAI:
         self._last_call = 0.0
         self.new_plan   = False          # set True when fresh strategy arrives
         self.log        = []             # list of chat dicts for the side panel
+        self.villain_name = "Vlad the Impaler"
 
     def strategy(self):
         with self._lock:
@@ -396,7 +397,7 @@ class VladAI:
             swap_word  = ", SWAP" if swap_available and alive_guards else ""
 
             prompt = (
-                "You are Vlad the Impaler. An assassin (A) is hunting you.\n"
+                f"You are {self.villain_name}. An assassin (A) is hunting you.\n"
                 "Use the situational data below to choose the BEST tactical directive.\n\n"
                 f"=== MAP ===\n{map_str}\n\n"
                 f"=== SITUATION ===\n{situation}\n\n"
@@ -1056,6 +1057,8 @@ class Vlad:
         self.stun_timer  = 0          # frames remaining stunned by lightning
         self.teleport_enabled   = False  # set by level flag "villain_teleport"
         self.teleport_cooldown  = 0      # frames until next teleport allowed
+        self.villain_name       = "Vlad" # display name — set from level config
+        self.swap_enabled       = True   # set by level flag "villain_swap"
 
     def _foot_tile(self):
         """Tile coordinates of the ground Vlad is standing on."""
@@ -1072,7 +1075,7 @@ class Vlad:
             gc = g.rect.centerx // TILE
             gr = (g.rect.bottom - 1) // TILE
             guard_data.append({"alive": g.alive, "tile": (gc, gr), "mode": g.mode})
-        swap_available = not self.swap_used and any(g.alive for g in (guards or []))
+        swap_available = not self.swap_used and self.swap_enabled and any(g.alive for g in (guards or []))
         self.ai.request(vc, vr, pc, pr, panic=panic, ammo=self.ammo,
                         guard_data=guard_data, swap_available=swap_available)
         # Store directive from AI (used by BT each frame)
@@ -1231,7 +1234,7 @@ class Vlad:
                 # Red burst — deploying guards
                 self._emit_burst(
                     [(220, 30, 30), (255, 80, 80), (200, 0, 100)], count=18)
-            elif self.directive == "SWAP" and not self.swap_used and guards:
+            elif self.directive == "SWAP" and not self.swap_used and self.swap_enabled and guards:
                 # Pick the alive, floor-level guard farthest from the player
                 # (exclude ceiling guards — their position is inside solid geometry)
                 target_guard = None
@@ -1285,7 +1288,7 @@ class Vlad:
             # Auto-SWAP: player has all daggers and is dangerously close — don't wait for LLM
             # Exclude ceiling guards — teleporting there puts Vlad inside solid geometry
             alive_guards = [g for g in (guards or []) if g.alive and g.mode != "ceiling"]
-            if (not self.swap_used and alive_guards
+            if (not self.swap_used and self.swap_enabled and alive_guards
                     and player.daggers >= getattr(player, '_total_daggers', 999)
                     and dist < TILE * 8):
                 target_guard = max(alive_guards,
@@ -1983,12 +1986,12 @@ def draw_hud(surface, player, total_daggers, vlad, font, muted=False, show_path=
     djump_txt = "  [2xJump]" if player.has_double_jump else ""
     mute_txt  = "  [MUTED]" if muted else ""
     if player.daggers >= total_daggers:
-        path_txt = "  [Q: tracking]" if show_path else "  [Q: track Vlad]"
+        path_txt = f"  [Q: tracking]" if show_path else f"  [Q: track {vlad.villain_name}]"
     else:
         path_txt = ""
     txt = font.render(
-        f"Daggers: {player.daggers}/{total_daggers}    Vlad: {state_txt}  "
-        f"Vlad-FB:{vlad.ammo}   {bolt_txt}  [E]{djump_txt}{mute_txt}{path_txt}",
+        f"Daggers: {player.daggers}/{total_daggers}    {vlad.villain_name}: {state_txt}  "
+        f"{vlad.villain_name}-FB:{vlad.ammo}   {bolt_txt}  [E]{djump_txt}{mute_txt}{path_txt}",
         True, GOLD)
     surface.blit(txt, (14, 30))
 
@@ -2009,7 +2012,8 @@ def draw_chat_panel(surface, vlad_ai, font_small, dbg=None, player=None, vlad=No
     px = panel_x + 8   # left margin inside panel
 
     # Title bar
-    title = font_small.render(f"  Vlad AI  —  {OLLAMA_MODEL}", True, GOLD)
+    vname = vlad.villain_name if vlad else "Villain"
+    title = font_small.render(f"  {vname} AI  —  {OLLAMA_MODEL}", True, GOLD)
     surface.blit(title, (px, 8))
     pygame.draw.line(surface, GOLD, (panel_x + 2, 28), (SCREEN_W - 2, 28), 1)
 
@@ -2050,7 +2054,7 @@ def draw_chat_panel(surface, vlad_ai, font_small, dbg=None, player=None, vlad=No
         y += 6
 
         # vlad block
-        surface.blit(font_small.render("─ VLAD ─", True, ORANGE), (px, y)); y += 16
+        surface.blit(font_small.render(f"─ {vlad.villain_name.upper()} ─", True, ORANGE), (px, y)); y += 16
         stun_val = f"{vlad.stun_timer}f" if vlad.stun_timer > 0 else "no"
         for label, value, col in [
             ("POS",    f"x={vlad.rect.x} y={vlad.rect.y}",             WHITE),
@@ -2071,7 +2075,7 @@ def draw_chat_panel(surface, vlad_ai, font_small, dbg=None, player=None, vlad=No
 
         pygame.draw.line(surface, GOLD, (panel_x + 2, y), (SCREEN_W - 2, y), 1)
         y += 6
-        surface.blit(font_small.render("─ VLAD AI LOG ─", True, GOLD), (px, y)); y += 18
+        surface.blit(font_small.render(f"─ {vlad.villain_name.upper()} AI LOG ─", True, GOLD), (px, y)); y += 18
 
     # ── LLM log ───────────────────────────────────────────────────────────────
     if not log:
@@ -2197,22 +2201,37 @@ def main():
         SkullBall._img = skull_img
     walk_img   = load_sprite(os.path.join(BASE, "assassin", "walking.png"), Player.W, Player.H)
     crouch_img = load_sprite(os.path.join(BASE, "assassin", "crouch.png"), Player.W, Player.CRAWL_H)
-    vlad_img   = load_sprite(os.path.join(BASE, "vlad", "vlad.png"),       Vlad.W, int(Vlad.H * 1.5))
-    if vlad_img:
-        vlad_img = pygame.transform.flip(vlad_img, True, False)
-    # Guard: same sprite as Vlad, scaled smaller, tinted near-black
-    if vlad_img:
-        _gb = pygame.transform.smoothscale(vlad_img, (Guard.W, Guard.H))
-        _gt = pygame.Surface(_gb.get_size(), pygame.SRCALPHA)
-        _gt.fill((170, 170, 175, 255))
-        _gb.blit(_gt, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-        guard_img = _gb
-    else:
-        guard_img = None
     dagger_img = load_sprite(os.path.join(BASE, "items", "dagger.png"), 24, 40)
 
+    def _load_villain_imgs(rel_path):
+        """Load villain sprite + guard tint from a sprites-relative path."""
+        vimg = load_sprite(os.path.join(BASE, rel_path), Vlad.W, int(Vlad.H * 1.5))
+        if vimg:
+            vimg = pygame.transform.flip(vimg, True, False)
+            _gb  = pygame.transform.smoothscale(vimg, (Guard.W, Guard.H))
+            _gt  = pygame.Surface(_gb.get_size(), pygame.SRCALPHA)
+            _gt.fill((170, 170, 175, 255))
+            _gb.blit(_gt, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            return vimg, _gb
+        return None, None
+
+    def _load_guard_img(rel_path):
+        """Load a dedicated guard sprite (no dark tint applied)."""
+        gimg = load_sprite(os.path.join(BASE, rel_path), Guard.W, Guard.H)
+        if gimg:
+            gimg = pygame.transform.flip(gimg, True, False)
+        return gimg
+
+    _def_vimg, _def_gimg = _load_villain_imgs("char/vlad.png")
+
     # per-level feature flags (mutated by _apply_level_visuals, read by reset)
-    flags = {"villain_teleport": False}
+    flags = {
+        "villain_teleport": False,
+        "villain_swap":     True,
+        "villain_name":     "Vlad",
+        "villain_img":      _def_vimg,
+        "guard_img":        _def_gimg,
+    }
 
     # visual assets stored in a dict so _apply_level_visuals can mutate them
     # without needing nonlocal — the draw loop always reads from this dict
@@ -2249,10 +2268,35 @@ def main():
                              (0, y), (GAME_W, y))
         return surf
 
+    def _apply_level_visuals():
+        """Swap visuals dict and flags based on current level_index entry."""
+        entry      = level_index[level_idx]
+        wall_file  = entry.get("wall")
+        floor_file = entry.get("floor")
+        w = load_sprite(os.path.join(BASE, wall_file),  TILE, TILE) if wall_file  else None
+        f = load_sprite(os.path.join(BASE, floor_file), TILE, TILE) if floor_file else None
+        visuals["bg"]    = _make_bg(entry.get("background"))
+        visuals["wall"]  = w if w else visuals["wall"]
+        visuals["floor"] = f if f else visuals["floor"]
+        flags["villain_teleport"] = entry.get("villain_teleport", False)
+        flags["villain_swap"]     = entry.get("villain_swap", True)
+        flags["villain_name"]     = entry.get("villain_name", "Vlad")
+        vimg, gimg = _load_villain_imgs(entry.get("villain_image", "char/vlad.png"))
+        if vimg:
+            flags["villain_img"] = vimg
+            flags["guard_img"]   = gimg
+        guard_path = entry.get("guard_image")
+        if guard_path:
+            g = _load_guard_img(guard_path)
+            if g:
+                flags["guard_img"] = g
+
     font       = pygame.font.SysFont("serif", 22)
     font_big   = pygame.font.SysFont("serif", 52, bold=True)
     font_bang  = pygame.font.SysFont("serif", 28, bold=True)
     font_small = pygame.font.SysFont("monospace", 13)
+
+    _apply_level_visuals()   # load level config into flags BEFORE first reset()
 
     def reset():
         nonlocal vlad_spawn
@@ -2261,13 +2305,16 @@ def main():
          pstart, vstart, gstarts) = build_level()
         player     = Player(*pstart, player_img, crouch_img, walk_img)
         vlad_spawn = vstart or (LEVEL_COLS // 2 * TILE, TILE * 2)
-        vlad       = Vlad(*vlad_spawn, vlad_img)
+        vlad       = Vlad(*vlad_spawn, flags["villain_img"])
         vlad.teleport_enabled = flags["villain_teleport"]
+        vlad.swap_enabled     = flags["villain_swap"]
+        vlad.villain_name     = flags["villain_name"]
+        vlad.ai.villain_name  = flags["villain_name"]
         skulls     = spawn_skulls()
         skull_grid = SpatialGrid()
         guards_list = []
         for i, (gx, gy) in enumerate(gstarts):
-            g = Guard(gx, gy, guard_img)
+            g = Guard(gx, gy, flags["guard_img"])
             if i % 2 == 1:
                 g.move_dir = -1
             guards_list.append(g)
@@ -2326,21 +2373,6 @@ def main():
     _intro_pause  = 0     # pause frames between lines
     _intro_done   = False # all text shown
 
-    visuals["bg"] = _make_bg()   # temporary — overwritten by _apply_level_visuals() below
-
-    def _apply_level_visuals():
-        """Swap visuals dict based on current level_index entry."""
-        entry      = level_index[level_idx]
-        wall_file  = entry.get("wall")
-        floor_file = entry.get("floor")
-        w = load_sprite(os.path.join(BASE, wall_file),  TILE, TILE) if wall_file  else None
-        f = load_sprite(os.path.join(BASE, floor_file), TILE, TILE) if floor_file else None
-        visuals["bg"]    = _make_bg(entry.get("background"))
-        visuals["wall"]  = w if w else visuals["wall"]
-        visuals["floor"] = f if f else visuals["floor"]
-        flags["villain_teleport"] = entry.get("villain_teleport", False)
-
-    _apply_level_visuals()   # apply visuals for the initial level on startup
 
     while True:
         clock.tick(FPS)
@@ -2845,10 +2877,10 @@ def main():
                     _update_caption()
                 secs = (win_timer + 59) // 60
                 next_name = level_index[next_idx]["name"]
-                draw_message(screen, "VLAD IS DEAD — MISSION COMPLETE!", font_big, GOLD,
+                draw_message(screen, f"{vlad.villain_name.upper()} IS DEAD — MISSION COMPLETE!", font_big, GOLD,
                              reason=f"Next: {next_name}  ({secs}s)")
             else:
-                draw_message(screen, "CAMPAIGN COMPLETE — VLAD IS DEAD!", font_big, GOLD,
+                draw_message(screen, f"CAMPAIGN COMPLETE — {vlad.villain_name.upper()} IS DEAD!", font_big, GOLD,
                              reason="All levels finished!")
         elif state == "dead":
             if death_timer > 0:

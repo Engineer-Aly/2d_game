@@ -1,19 +1,28 @@
 {
   "levels": [
     {
-      "file": "level.txt",
+      "file": "levels/level.txt",
       "name": "The Castle \u2014 Hunt Begins"
     },
     {
-      "file": "level_2.txt",
+      "file": "levels/level_2.txt",
       "name": "2nd Castle \u2014 Hunt continues"
     },
     {
-      "file": "level_3.txt",
+      "file": "levels/level_3.txt",
       "name": "Level 3 \u2014 The Courtyard",
-      "background": "bg_night_wide.png",
-      "wall": "wall_tile_outdoor2.png",
-      "floor": "floor_tile_outdoor2.png"
+      "background": "level_tiles/bg_night_wide.png",
+      "wall": "level_tiles/wall_tile_outdoor2.png",
+      "floor": "level_tiles/floor_tile_outdoor2.png",
+      "villain_teleport": true
+    }
+    ,
+    {
+      "file": "levels/level_4.txt",
+      "name": "Level 4 \u2014 The DIVE",
+      "background": "level_tiles/bg_night_wide.png",
+      "wall": "level_tiles/wall_tile_outdoor.png",
+      "floor": "level_tiles/floor_tile_outdoor.png"
     }
   ]
 }
