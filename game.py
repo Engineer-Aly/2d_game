@@ -1743,8 +1743,9 @@ class Guard:
         self.move_dir    = random.choice([-1, 1])
         self._roam_cd    = random.randint(60, 180)
         self.directive   = "FLEE"    # synced from Vlad's AI
-        self._alert_cd   = 0         # countdown before dropping
-        self._flank_target = None    # pixel x to move to when flanking
+        self._alert_cd    = 0         # countdown before dropping
+        self._hunt_target_x = None   # if set, drift toward this x while dropping
+        self._flank_target  = None   # pixel x to move to when flanking
         self._floor_bt   = self._build_floor_bt()
 
     # ── ceiling walk ──────────────────────────────────────────────────────────
@@ -1788,6 +1789,9 @@ class Guard:
 
     # ── free-fall from ceiling ────────────────────────────────────────────────
     def _update_dropping(self, tiles, player):
+        if self._hunt_target_x is not None:
+            dx = self._hunt_target_x - self.rect.centerx
+            self.vx = _GUARD_SPD_FLOOR if dx > 0 else -_GUARD_SPD_FLOOR if dx < 0 else 0.0
         self.vy, self.on_surface = apply_physics(
             self.rect, self.vx, self.vy, tiles)
         # Fire when level with the player (within 1.5 tiles vertically)
@@ -1797,8 +1801,9 @@ class Guard:
             # Fire on landing if still haven't (missed the level crossing)
             if self.ammo > 0:
                 self._fire(player)
-            self.mode = "floor"
-            self.vx   = 0.0
+            self.mode           = "floor"
+            self.vx             = 0.0
+            self._hunt_target_x = None
 
     # ── floor chase toward player ─────────────────────────────────────────────
     def _update_floor(self, tiles, player):
@@ -2261,6 +2266,9 @@ def main():
         "villain_img":      _def_vimg,
         "guard_img":        _def_gimg,
         "villain_hp":       1,
+        "guard_alert":        False,
+        "guard_alert_radius": 8,
+        "guard_alert_hunt":   False,
         "villain_ammo":     3,
         "villain_flip":     True,
         "guard_ammo":       1,
@@ -2315,7 +2323,10 @@ def main():
         flags["villain_teleport"] = entry.get("villain_teleport", False)
         flags["villain_swap"]     = entry.get("villain_swap", True)
         flags["villain_name"]     = entry.get("villain_name", "Vlad")
-        flags["villain_hp"]       = entry.get("villain_hp", 1)
+        flags["villain_hp"]         = entry.get("villain_hp", 1)
+        flags["guard_alert"]        = entry.get("guard_alert", False)
+        flags["guard_alert_radius"] = entry.get("guard_alert_radius", 8)
+        flags["guard_alert_hunt"]   = entry.get("guard_alert_hunt", False)
         flags["villain_ammo"]     = entry.get("villain_ammo", 3)
         flags["villain_flip"]     = entry.get("villain_flip", True)
         flags["guard_ammo"]       = entry.get("guard_ammo", 1)
@@ -2682,6 +2693,21 @@ def main():
                 if g.pending_fb:
                     guard_fbs.append(g.pending_fb)
                     g.pending_fb = None
+
+            # Guard alert propagation — if one guard goes alert, nearby ceiling guards follow
+            if flags["guard_alert"]:
+                radius_px = flags["guard_alert_radius"] * TILE
+                hunt      = flags["guard_alert_hunt"]
+                for g in guards:
+                    if g.alive and g.mode in ("alert", "dropping", "floor"):
+                        for other in guards:
+                            if (other is not g and other.alive
+                                    and other.mode == "ceiling"
+                                    and abs(other.rect.centerx - g.rect.centerx) <= radius_px):
+                                other.mode      = "alert"
+                                other._alert_cd = 35
+                                if hunt:
+                                    other._hunt_target_x = player.rect.centerx
 
             # Guard fireballs
             for gfb in guard_fbs[:]:

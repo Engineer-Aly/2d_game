@@ -12,6 +12,9 @@
       "villain_ammo": 6,
       "guard_image": "animal/animal_dog.png",
       "guard_ammo": 0,
+      "guard_alert": true,
+      "guard_alert_radius": 108,
+      "guard_alert_hunt": true,
       "guard_flip": false
     }
   ]
