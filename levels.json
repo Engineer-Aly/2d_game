@@ -15,7 +15,25 @@
       "guard_alert": true,
       "guard_alert_radius": 108,
       "guard_alert_hunt": true,
-      "guard_flip": false
+      "guard_flip": false,
+      "music": "The_Watcher_s_Hand.mp3",
+      "title_music": "",
+      "title_sequence": [
+        {"text": "",                                              "kind": "gap"},
+        {"text": "Level 1",                                      "kind": "title"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "The Castle \u2014 Hunt Begins",                "kind": "game_title"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014", "kind": "divider"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "The hunt begins.",                             "kind": "body"},
+        {"text": "Guards patrol every shadow.",                  "kind": "body"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "Collect the daggers.",                         "kind": "body"},
+        {"text": "Find the Masked Vizier. End this.",            "kind": "body"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "Press  SPACE  to begin",                       "kind": "hint"}
+      ]
     }
   ]
 }

@@ -2181,11 +2181,30 @@ def main():
 
     def _start_gameplay_music():
         nonlocal _gameplay_started
+        music_file = flags.get("music", MUSIC_GAMEPLAY)
+        if not os.path.isabs(music_file):
+            music_file = os.path.join(MUSIC_DIR, music_file)
         if not _gameplay_started:
             _gameplay_started = True
-            if os.path.exists(MUSIC_GAMEPLAY):
-                pygame.mixer.music.load(MUSIC_GAMEPLAY)
-                pygame.mixer.music.play(-1)   # loop forever
+        if os.path.exists(music_file):
+            pygame.mixer.music.load(music_file)
+            pygame.mixer.music.play(-1)   # loop forever
+
+    def _start_title_music():
+        tm = flags.get("title_music", "")
+        if tm:
+            path = os.path.join(MUSIC_DIR, tm) if not os.path.isabs(tm) else tm
+            if os.path.exists(path):
+                pygame.mixer.music.load(path)
+                pygame.mixer.music.play(-1)
+
+    def _enter_level_title():
+        nonlocal _ltitle_line, _ltitle_char, _ltitle_pause, _ltitle_done
+        _ltitle_line  = 0
+        _ltitle_char  = 0.0
+        _ltitle_pause = 0
+        _ltitle_done  = False
+        _start_title_music()
 
     if os.path.exists(MUSIC_INTRO):
         pygame.mixer.music.load(MUSIC_INTRO)
@@ -2273,6 +2292,11 @@ def main():
         "villain_flip":     True,
         "guard_ammo":       1,
         "guard_flip":       True,
+        "music":            "Beneath_the_Keep.mp3",
+        "title_music":      "",
+        "level_name":       "",
+        "title_subtitle":   "",
+        "title_sequence":   [],
     }
 
     # visual assets stored in a dict so _apply_level_visuals can mutate them
@@ -2341,6 +2365,14 @@ def main():
             g = _load_guard_img(guard_path, flip=flags["guard_flip"])
             if g:
                 flags["guard_img"] = g
+        if "music" in entry:
+            flags["music"] = entry["music"]
+        else:
+            flags["music"] = MUSIC_GAMEPLAY
+        flags["title_music"]    = entry.get("title_music", "")
+        flags["level_name"]     = entry.get("name", "")
+        flags["title_subtitle"] = entry.get("title_subtitle", "")
+        flags["title_sequence"] = entry.get("title_sequence", [])
 
     font       = pygame.font.SysFont("serif", 22)
     font_big   = pygame.font.SysFont("serif", 52, bold=True)
@@ -2429,6 +2461,12 @@ def main():
     _intro_pause  = 0     # pause frames between lines
     _intro_done   = False # all text shown
 
+    # level title typewriter state (same pattern as intro)
+    _ltitle_line  = 0
+    _ltitle_char  = 0.0
+    _ltitle_pause = 0
+    _ltitle_done  = False
+
 
     while True:
         clock.tick(FPS)
@@ -2437,18 +2475,34 @@ def main():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == MUSIC_END_EVENT:
-                _start_gameplay_music()
+                if state == "intro":
+                    _enter_level_title()
+                    state = "level_title"
+                elif state not in ("level_title",):
+                    _start_gameplay_music()
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit(); sys.exit()
-                # SPACE during intro: skip to end or start game
+                # SPACE during intro: skip to end or go to level title
                 if event.key == pygame.K_SPACE and state == "intro":
                     if _intro_done:
-                        state = "play"
+                        _enter_level_title()
+                        state = "level_title"
                     else:
                         _intro_line  = len(INTRO_LINES) - 1
                         _intro_char  = len(INTRO_LINES[-1][0])
                         _intro_done  = True
+                # SPACE during level title: skip to end or start gameplay
+                if event.key == pygame.K_SPACE and state == "level_title":
+                    if _ltitle_done:
+                        _start_gameplay_music()
+                        state = "play"
+                    else:
+                        seq = flags.get("title_sequence", [])
+                        if seq:
+                            _ltitle_line = len(seq) - 1
+                            _ltitle_char = len(seq[-1].get("text", ""))
+                        _ltitle_done = True
                 if event.key == pygame.K_r:
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
@@ -2463,12 +2517,13 @@ def main():
                     level_idx = (level_idx + 1) % len(level_index)
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
+                    _enter_level_title()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
      pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
-                    state = "play"; death_reason = ""; death_timer = 0
+                    state = "level_title"; death_reason = ""; death_timer = 0
                     _update_caption()
                 # F1 → toggle debug mode
                 if event.key == pygame.K_F1:
@@ -2487,12 +2542,13 @@ def main():
                     level_idx = (level_idx - 1) % len(level_index)
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
+                    _enter_level_title()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
      pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
-                    state = "play"; death_reason = ""; death_timer = 0
+                    state = "level_title"; death_reason = ""; death_timer = 0
                     _update_caption()
 
         # ── Intro state ───────────────────────────────────────────────────────
@@ -2555,6 +2611,71 @@ def main():
 
             pygame.display.flip()
             continue   # skip the rest of the game loop while in intro
+
+        # ── Level title state (typewriter, same style as intro) ───────────────
+        if state == "level_title":
+            screen.fill((0, 0, 0))
+            CW = SCREEN_W // 2
+            y  = 60
+            seq = flags.get("title_sequence", [])
+
+            for i, entry in enumerate(seq):
+                text = entry.get("text", "")
+                kind = entry.get("kind", "body")
+                if i < _ltitle_line:
+                    visible = text
+                elif i == _ltitle_line:
+                    visible = text[:int(_ltitle_char)]
+                else:
+                    break
+
+                if kind == "gap":
+                    y += 10; continue
+                if kind == "divider":
+                    pygame.draw.line(screen, (80, 60, 30),
+                                     (CW - 180, y + 8), (CW + 180, y + 8), 1)
+                    y += 20; continue
+
+                if kind == "title":
+                    color = (200, 170, 80)
+                    surf  = font_bang.render(visible, True, color)
+                elif kind == "sultan":
+                    color = (255, 200, 80)
+                    surf  = font.render(visible, True, color)
+                elif kind == "game_title":
+                    color = (220, 60, 60)
+                    surf  = font_big.render(visible, True, color)
+                elif kind == "hint":
+                    pulse = abs(math.sin(pygame.time.get_ticks() / 600))
+                    color = (int(120 + 80 * pulse),) * 3
+                    surf  = font.render(visible, True, color)
+                else:  # body
+                    color = (190, 185, 175)
+                    surf  = font.render(visible, True, color)
+
+                screen.blit(surf, surf.get_rect(centerx=CW, y=y))
+                y += surf.get_height() + 4
+
+            # typewriter advance
+            if not _ltitle_done:
+                if _ltitle_pause > 0:
+                    _ltitle_pause -= 1
+                else:
+                    if seq:
+                        cur_text = seq[_ltitle_line].get("text", "")
+                        _ltitle_char += 2.5
+                        if _ltitle_char >= len(cur_text):
+                            _ltitle_char  = len(cur_text)
+                            _ltitle_line += 1
+                            _ltitle_pause = 18
+                            if _ltitle_line >= len(seq):
+                                _ltitle_line = len(seq) - 1
+                                _ltitle_done = True
+                    else:
+                        _ltitle_done = True
+
+            pygame.display.flip()
+            continue   # skip the rest of the game loop while on level title
 
         touching_early = False
 
@@ -2945,12 +3066,13 @@ def main():
                     level_idx = next_idx
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
+                    _enter_level_title()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
      pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
-                    state = "play"; death_reason = ""; death_timer = 0; win_timer = 0
+                    state = "level_title"; death_reason = ""; death_timer = 0; win_timer = 0
                     _update_caption()
                 secs = (win_timer + 59) // 60
                 next_name = level_index[next_idx]["name"]
