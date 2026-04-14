@@ -626,7 +626,7 @@ class Player:
         jump_pressed = self._jump_held and not self._jump_prev
         if (jump_pressed and not self.on_ground and not self.wall_sliding
                 and self.has_double_jump and not self.double_jump_used):
-            self.vy               = JUMP_FORCE * 0.85
+            self.vy               = JUMP_FORCE
             self.double_jump_used = True
         self._jump_prev = self._jump_held
         # Wall slide: airborne + pressing into a wall → slow the fall

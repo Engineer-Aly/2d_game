@@ -35,5 +35,63 @@
         {"text": "Press  SPACE  to begin",                       "kind": "hint"}
       ]
     }
+     ,
+    {
+      "file": "levels/level.txt",
+      "name": "The Castle \u2014 Hunt",
+      "villain_image": "char/char_fullMettalArmor.png",
+      "villain_name": "Knight",
+      "villain_ammo": 6,
+      "guard_image": "animal/animal_lion.png",
+      "guard_ammo": 0,
+      "guard_flip": false,
+      "title_sequence": [
+        {"text": "",                                              "kind": "gap"},
+        {"text": "Level 1",                                      "kind": "title"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "The Castle \u2014 Hunt Begins",                "kind": "game_title"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014", "kind": "divider"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "The Knight.",                             "kind": "body"},
+        {"text": "Guards patrol every shadow.",                  "kind": "body"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "Collect the daggers.",                         "kind": "body"},
+        {"text": "Act now. End this.",            "kind": "body"},
+        {"text": "",                                              "kind": "gap"},
+        {"text": "Press  SPACE  to begin",                       "kind": "hint"}
+      ]
+    },
+    {
+      "file": "levels/level_2.txt",
+      "name": "2nd Castle \u2014 Hunt continues",
+      "villain_image": "char/char_ShadowGhouls.png",
+      "villain_name": "Shadow Ghoul",
+      "villain_ammo": 6,
+      "villain_teleport": true,
+      "floor": "level_tiles/floor_tile_outdoor2.png",
+      "guard_image": "animal/animal_tiger.png",
+      "guard_ammo": 0,
+      "guard_flip": false
+    },
+    {
+      "file": "levels/level_3.txt",
+      "name": "Level 4 \u2014 The Courtyard",
+      "background": "level_tiles/bg_night_wide.png",
+      "wall": "level_tiles/wall_tile_outdoor2.png",
+      "floor": "level_tiles/floor_tile_outdoor2.png",
+      "villain_teleport": true
+    }
+    ,
+    {
+      "file": "levels/level_4.txt",
+      "name": "Level 5 \u2014 The DIVE",
+      "background": "level_tiles/bg_night_wide.png",
+      "wall": "level_tiles/wall_tile_outdoor.png",
+      "floor": "level_tiles/floor_tile_outdoor.png",
+      "villain_swap": false,
+      "villain_teleport": false
+
+    }
   ]
 }
