@@ -2,7 +2,7 @@
   "levels": [
 
     {
-      "file": "levels/level_4.txt",
+      "file": "levels/level_0.txt",
       "name": "The Castle \u2014 Hunt Begins",
       "villain_image": "char/char_TheMaskedVizier.png",
       "villain_name": "Masked Vizier",
