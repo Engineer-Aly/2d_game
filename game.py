@@ -2199,12 +2199,18 @@ def main():
                 pygame.mixer.music.play(-1)
 
     def _enter_level_title():
+        """Reset title typewriter state, start appropriate music, return next state."""
         nonlocal _ltitle_line, _ltitle_char, _ltitle_pause, _ltitle_done
         _ltitle_line  = 0
         _ltitle_char  = 0.0
         _ltitle_pause = 0
         _ltitle_done  = False
-        _start_title_music()
+        if flags.get("title_sequence"):
+            _start_title_music()
+            return "level_title"
+        else:
+            _start_gameplay_music()
+            return "play"
 
     if os.path.exists(MUSIC_INTRO):
         pygame.mixer.music.load(MUSIC_INTRO)
@@ -2476,8 +2482,7 @@ def main():
                 pygame.quit(); sys.exit()
             if event.type == MUSIC_END_EVENT:
                 if state == "intro":
-                    _enter_level_title()
-                    state = "level_title"
+                    state = _enter_level_title()
                 elif state not in ("level_title",):
                     _start_gameplay_music()
             if event.type == pygame.KEYDOWN:
@@ -2486,8 +2491,7 @@ def main():
                 # SPACE during intro: skip to end or go to level title
                 if event.key == pygame.K_SPACE and state == "intro":
                     if _intro_done:
-                        _enter_level_title()
-                        state = "level_title"
+                        state = _enter_level_title()
                     else:
                         _intro_line  = len(INTRO_LINES) - 1
                         _intro_char  = len(INTRO_LINES[-1][0])
@@ -2517,13 +2521,13 @@ def main():
                     level_idx = (level_idx + 1) % len(level_index)
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
-                    _enter_level_title()
+                    _next_state = _enter_level_title()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
      pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
-                    state = "level_title"; death_reason = ""; death_timer = 0
+                    state = _next_state; death_reason = ""; death_timer = 0
                     _update_caption()
                 # F1 → toggle debug mode
                 if event.key == pygame.K_F1:
@@ -2542,13 +2546,13 @@ def main():
                     level_idx = (level_idx - 1) % len(level_index)
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
-                    _enter_level_title()
+                    _next_state = _enter_level_title()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
      pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
-                    state = "level_title"; death_reason = ""; death_timer = 0
+                    state = _next_state; death_reason = ""; death_timer = 0
                     _update_caption()
 
         # ── Intro state ───────────────────────────────────────────────────────
@@ -3066,13 +3070,13 @@ def main():
                     level_idx = next_idx
                     switch_level(level_index[level_idx]["file"])
                     _apply_level_visuals()
-                    _enter_level_title()
+                    _next_state = _enter_level_title()
                     (player, vlad, solids, daggers, magic_orbs, wall_rects, floor_rects,
                      fireballs, guards, guard_fbs, skulls, skull_grid, lightnings,
      pressure_plates, falling_blocks) = reset()
                     total_daggers = len(daggers)
                     player._total_daggers = total_daggers
-                    state = "level_title"; death_reason = ""; death_timer = 0; win_timer = 0
+                    state = _next_state; death_reason = ""; death_timer = 0; win_timer = 0
                     _update_caption()
                 secs = (win_timer + 59) // 60
                 next_name = level_index[next_idx]["name"]
