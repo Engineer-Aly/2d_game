@@ -42,6 +42,7 @@
       "villain_image": "char/char_fullMettalArmor.png",
       "villain_name": "Knight",
       "villain_ammo": 6,
+      "villain_flip": false,
       "guard_image": "animal/animal_lion.png",
       "guard_ammo": 0,
       "guard_flip": false,

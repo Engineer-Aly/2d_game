@@ -11,15 +11,15 @@
 # Jump height ≈ 3.5 tiles, so keep vertical gaps <= 3 tiles
 # Horizontal platForm gaps can be any width you can run-jump across
 #
-WWWWWWWWWWWWWWGWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWGWWWWWWWWWWWWWW
-W.................FFFFFWW.........................FFFFWWWWWWWWWGWWWWWWWWWWWWWWWWWWWWWWWWW
-W.........FFFFFFFFFFFFFWW.............................WW...............................WW
-W......................WW..................FFFFGFFFFFFWW...............................WW
-W......................WW.........FFFFFF...............................................WW
-WFFFFFFFFW.....D.......WW..............................................................WW
-W......................WWFFFGF.........................................................WW
+WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW
+W.................FFFFFWW.........................FFFFWWWWWWWWWwWWWWWWWWWWWWWWWWWWWWWWWWW
+W................FFFFFFWW......................g.g....WW...............................WW
+W......................WW..................FFFFFFFFFFFWW...............................WW
+W......g...............WW.........FFFFFF...............................................WW
+WFFFFFFFFW.....D.......WW.J............................................................WW
+W......................WWFFFGF..................................g......................WW
 W......................WW.....FFFFF............................WWFFFF....V.............WW
 W..........FFFFFFFFFFFFWW..........FFFF..............................FFFFFF..........FFWW
 W................................................................................FFFFFFWW
-W.P..D..J.....................WW......................WW...........D...........FFFFFFFFWW
+W.P..D........................WW......................WW...........D...........FFFFFFFFWW
 FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
