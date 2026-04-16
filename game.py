@@ -519,14 +519,16 @@ class Player:
     W, H    = 38, 64
     CRAWL_H = 30          # hitbox height when crouching (~fits in 1-tile gap)
 
-    def __init__(self, x, y, img, crouch_img=None, walk_img=None):
+    def __init__(self, x, y, img, crouch_img=None, walk_imgs=None):
         self.rect       = pygame.Rect(x, y, self.W, self.H)
         self.vx = self.vy = 0
         self.on_ground  = False
         self.img_flip   = False
         self.img        = img
         self.crouch_img = crouch_img
-        self.walk_img   = walk_img
+        self.walk_imgs  = walk_imgs or []
+        self._walk_frame = 0
+        self._walk_timer = 0
         self.daggers          = 0
         self.crouching        = False
         self.lightning        = LIGHTNING_CHARGES
@@ -618,6 +620,15 @@ class Player:
     def update(self, tiles):
         if self.invincible > 0:
             self.invincible -= 1
+        # walk animation
+        if self.vx != 0 and self.walk_imgs:
+            self._walk_timer += 1
+            if self._walk_timer >= 8:
+                self._walk_timer = 0
+                self._walk_frame = (self._walk_frame + 1) % len(self.walk_imgs)
+        else:
+            self._walk_frame = 0
+            self._walk_timer = 0
         self.vy, self.on_ground = apply_physics(self.rect, self.vx, self.vy, tiles)
         # reset double jump when landing
         if self.on_ground:
@@ -650,8 +661,8 @@ class Player:
             img = self.crouch_img
         elif self.wall_sliding:
             img = self.img   # standing sprite — looks like gripping the wall
-        elif self.vx != 0 and self.walk_img:
-            img = self.walk_img
+        elif self.vx != 0 and self.walk_imgs:
+            img = self.walk_imgs[self._walk_frame]
         else:
             img = self.img
         if img:
@@ -2257,7 +2268,9 @@ def main():
     skull_img  = load_sprite(os.path.join(BASE, "level_tiles", "skull.png"), skull_sz, skull_sz)
     if skull_img:
         SkullBall._img = skull_img
-    walk_img   = load_sprite(os.path.join(BASE, "assassin", "walking.png"), Player.W, Player.H)
+    walk_imgs  = [load_sprite(os.path.join(BASE, "assassin", f"walk_{i}.png"), Player.W, Player.H)
+                  for i in [0, 1, 3]]
+    walk_imgs  = [f for f in walk_imgs if f]  # drop any that failed to load
     crouch_img = load_sprite(os.path.join(BASE, "assassin", "crouch.png"), Player.W, Player.CRAWL_H)
     dagger_img = load_sprite(os.path.join(BASE, "items", "dagger.png"), 24, 40)
 
@@ -2392,7 +2405,7 @@ def main():
         (solids, daggers, magic_orbs, wall_rects, floor_rects,
          pressure_plates, falling_blocks,
          pstart, vstart, gstarts) = build_level()
-        player     = Player(*pstart, player_img, crouch_img, walk_img)
+        player     = Player(*pstart, player_img, crouch_img, walk_imgs)
         vlad_spawn = vstart or (LEVEL_COLS // 2 * TILE, TILE * 2)
         vlad       = Vlad(*vlad_spawn, flags["villain_img"])
         vlad.teleport_enabled = flags["villain_teleport"]
